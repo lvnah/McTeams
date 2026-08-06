@@ -251,7 +251,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor {
             Scoreboard board = Bukkit.getScoreboardManager().getNewScoreboard();
             Objective obj = board.registerNewObjective("mcteams", "dummy");
             obj.setDisplaySlot(DisplaySlot.SIDEBAR);
-            obj.setDisplayName("§cMcTeams");
+            obj.setDisplayName("§cMcTeams Map");
 
             List<String> lines = new ArrayList<>();
             lines.add("§f§m------------");
