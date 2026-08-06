@@ -2,7 +2,7 @@
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
-    <groupId>fr.tonpseudo</groupId>
+    <groupId>fr.lvnah</groupId>
     <artifactId>McTeams</artifactId>
     <version>1.0</version>
     <packaging>jar</packaging>
@@ -14,10 +14,17 @@
     </properties>
 
     <repositories>
+        <!-- Dépôt Spigot -->
         <repository>
             <id>spigot-repo</id>
             <url>https://hub.spigotmc.org/nexus/content/repositories/snapshots/</url>
         </repository>
+        <!-- Dépôt Sonatype (Nécessaire pour Bungeecord-chat en 1.8.8) -->
+        <repository>
+            <id>sonatype-oss</id>
+            <url>https://oss.sonatype.org/content/repositories/snapshots/</url>
+        </repository>
+        <!-- Dépôt WorldGuard -->
         <repository>
             <id>sk89q-repo</id>
             <url>https://maven.enginehub.org/repo/</url>

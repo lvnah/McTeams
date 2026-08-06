@@ -1,6 +1,7 @@
 name: McTeams
 version: 1.0
 main: fr.mcteams.McTeamsPlugin
+author: lvnah
 api-version: 1.13 # Ignore si tu es strictement en 1.8, mais utile pour la compatibilité
 depend: [WorldGuard]
 commands:
