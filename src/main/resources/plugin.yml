@@ -1,0 +1,23 @@
+name: McTeams
+version: 1.0
+main: fr.mcteams.McTeamsPlugin
+api-version: 1.13 # Ignore si tu es strictement en 1.8, mais utile pour la compatibilité
+depend: [WorldGuard]
+commands:
+  setspawn:
+    description: Définit le spawn du serveur
+  go:
+    description: Gestion des homes
+  team:
+    description: Gestion de la team
+    aliases: [t]
+  buy:
+    description: Acheter un item
+  sell:
+    description: Vendre un item
+  buyview:
+    description: Voir le marché
+  deposit:
+    description: Convertir l'or en monnaie virtuelle
+  balance:
+    description: Voir son solde
