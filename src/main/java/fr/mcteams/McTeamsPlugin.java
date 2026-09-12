@@ -4,7 +4,6 @@ import com.sk89q.worldguard.bukkit.WGBukkit;
 import com.sk89q.worldguard.protection.ApplicableRegionSet;
 import com.sk89q.worldguard.protection.regions.ProtectedRegion;
 import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.command.Command;
@@ -79,26 +78,22 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                 p.setScoreboard(board);
             }
 
-            // Création des équipes de grade pour le Tab et le préfixe au-dessus de la tête
-            createRankTeamInBoard(board, "01admin", "§c", "§c[Admin] ");
-            createRankTeamInBoard(board, "02mod", "§b", "§b[Mod] ");
-            createRankTeamInBoard(board, "03vip", "§6", "§6[VIP] ");
-            createRankTeamInBoard(board, "04default", "§f", "§f[Player] ");
+            createRankTeamInBoard(board, "01admin", "§c[Admin] ");
+            createRankTeamInBoard(board, "02mod", "§b[Mod] ");
+            createRankTeamInBoard(board, "03vip", "§6[VIP] ");
+            createRankTeamInBoard(board, "04default", "§f[Player] ");
 
             assignPlayerToRankTeam(board, target);
         }
     }
 
-    private void createRankTeamInBoard(Scoreboard board, String teamName, String color, String prefix) {
+    private void createRankTeamInBoard(Scoreboard board, String teamName, String prefix) {
         Team t = board.getTeam(teamName);
         if (t == null) {
             t = board.registerNewTeam(teamName);
         }
         t.setPrefix(prefix);
         t.setSuffix("");
-        try {
-            t.setChatColor(ChatColor.getByChar(color.replace("§", "")));
-        } catch (Exception ignored) {}
     }
 
     private void assignPlayerToRankTeam(Scoreboard board, Player target) {
@@ -154,7 +149,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                 }
                 playerRanks.put(target.getUniqueId(), newRank);
                 setupPlayerScoreboard(target);
-                p.sendMessage("§6Grade de §f" + target.getName + " §6défini sur : §f" + newRank);
+                p.sendMessage("§6Grade de §f" + target.getName() + " §6défini sur : §f" + newRank);
                 target.sendMessage("§6Ton grade a été mis à jour : §f" + newRank);
                 break;
 
