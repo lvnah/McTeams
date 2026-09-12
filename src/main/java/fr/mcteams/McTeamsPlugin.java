@@ -12,32 +12,112 @@ import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.Listener;
+import org.bukkit.event.player.AsyncPlayerChatEvent;
+import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scoreboard.DisplaySlot;
 import org.bukkit.scoreboard.Objective;
 import org.bukkit.scoreboard.Scoreboard;
+import org.bukkit.scoreboard.Team;
 
 import java.util.*;
 
-public class McTeamsPlugin extends JavaPlugin implements CommandExecutor {
+public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listener {
 
     private Location spawnLocation;
     private final Map<UUID, Map<String, Location>> playerHomes = new HashMap<>();
     private final Map<UUID, Double> balances = new HashMap<>();
-    private final Map<String, Team> teams = new HashMap<>();
+    private final Map<String, TeamData> teams = new HashMap<>();
     private final Map<UUID, String> playerTeam = new HashMap<>();
+    private final Map<UUID, String> playerRanks = new HashMap<>();
     private final List<MarketItem> market = new ArrayList<>();
 
     @Override
     public void onEnable() {
-        String[] cmds = {"setspawn", "go", "team", "deposit", "balance", "sell", "buy", "buyview"};
+        String[] cmds = {"setspawn", "go", "team", "deposit", "balance", "sell", "buy", "buyview", "setrank"};
         for (String cmd : cmds) {
             getCommand(cmd).setExecutor(this);
         }
 
+        getServer().getPluginManager().registerEvents(this, this);
         Bukkit.getScheduler().runTaskTimer(this, this::updateScoreboards, 0L, 20L);
-        getLogger().info("McTeams est activé !");
+        getLogger().info("McTeams est activé avec les grades !");
+    }
+
+    @EventHandler
+    public void onJoin(PlayerJoinEvent e) {
+        Player p = e.getPlayer();
+        playerRanks.putIfAbsent(p.getUniqueId(), "default");
+        setupPlayerScoreboard(p);
+    }
+
+    @EventHandler
+    public void onChat(AsyncPlayerChatEvent e) {
+        Player p = e.getPlayer();
+        String rank = playerRanks.getOrDefault(p.getUniqueId(), "default");
+        String prefix = getRankPrefix(rank);
+        e.setFormat(prefix + " §f" + p.getName() + " §7> §f" + e.getMessage());
+    }
+
+    private String getRankPrefix(String rank) {
+        switch (rank.toLowerCase()) {
+            case "vip": return "§6[VIP]";
+            case "mod": case "moderator": return "§b[Mod]";
+            case "admin": return "§c[Admin]";
+            default: return "§f[Player]";
+        }
+    }
+
+    private void setupPlayerScoreboard(Player target) {
+        for (Player p : Bukkit.getOnlinePlayers()) {
+            Scoreboard board = p.getScoreboard();
+            if (board == Bukkit.getScoreboardManager().getMainScoreboard()) {
+                board = Bukkit.getScoreboardManager().getNewScoreboard();
+                p.setScoreboard(board);
+            }
+
+            // Création des équipes de grade pour le Tab et le préfixe au-dessus de la tête
+            createRankTeamInBoard(board, "01admin", "§c", "§c[Admin] ");
+            createRankTeamInBoard(board, "02mod", "§b", "§b[Mod] ");
+            createRankTeamInBoard(board, "03vip", "§6", "§6[VIP] ");
+            createRankTeamInBoard(board, "04default", "§f", "§f[Player] ");
+
+            assignPlayerToRankTeam(board, target);
+        }
+    }
+
+    private void createRankTeamInBoard(Scoreboard board, String teamName, String color, String prefix) {
+        Team t = board.getTeam(teamName);
+        if (t == null) {
+            t = board.registerNewTeam(teamName);
+        }
+        t.setPrefix(prefix);
+        t.setSuffix("");
+        try {
+            t.setChatColor(ChatColor.getByChar(color.replace("§", "")));
+        } catch (Exception ignored) {}
+    }
+
+    private void assignPlayerToRankTeam(Scoreboard board, Player target) {
+        String rank = playerRanks.getOrDefault(target.getUniqueId(), "default").toLowerCase();
+        String teamKey = "04default";
+        if (rank.equals("admin")) teamKey = "01admin";
+        else if (rank.equals("mod") || rank.equals("moderator")) teamKey = "02mod";
+        else if (rank.equals("vip")) teamKey = "03vip";
+
+        for (Team t : board.getTeams()) {
+            if (t.hasEntry(target.getName())) {
+                t.removeEntry(target.getName());
+            }
+        }
+
+        Team t = board.getTeam(teamKey);
+        if (t != null) {
+            t.addEntry(target.getName());
+        }
     }
 
     @Override
@@ -53,13 +133,37 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor {
                 p.sendMessage("§6Spawn défini §favec succès !");
                 break;
 
+            case "setrank":
+                if (!p.isOp()) {
+                    p.sendMessage("§6Tu n'as pas la permission §fde faire ça.");
+                    return true;
+                }
+                if (args.length != 2) {
+                    p.sendMessage("§6Usage: §f/setrank <joueur> <default|vip|mod|admin>");
+                    return true;
+                }
+                Player target = Bukkit.getPlayer(args[0]);
+                if (target == null) {
+                    p.sendMessage("§6Joueur introuvable §fou hors ligne.");
+                    return true;
+                }
+                String newRank = args[1].toLowerCase();
+                if (!Arrays.asList("default", "vip", "mod", "admin").contains(newRank)) {
+                    p.sendMessage("§6Grades valides : §fdefault, vip, mod, admin");
+                    return true;
+                }
+                playerRanks.put(target.getUniqueId(), newRank);
+                setupPlayerScoreboard(target);
+                p.sendMessage("§6Grade de §f" + target.getName + " §6défini sur : §f" + newRank);
+                target.sendMessage("§6Ton grade a été mis à jour : §f" + newRank);
+                break;
+
             case "go":
                 if (args.length == 0) {
                     p.sendMessage("§6Usage: §f/go set <nom> ou /go <nom>");
                     return true;
                 }
                 Map<String, Location> homes = playerHomes.computeIfAbsent(uuid, k -> new HashMap<>());
-                
                 if (args[0].equalsIgnoreCase("set") && args.length == 2) {
                     if (homes.size() >= 3) {
                         p.sendMessage("§6Tu as déjà atteint la limite de §f3 /go §6!");
@@ -178,7 +282,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor {
                 String teamName = args[1];
                 if (teams.containsKey(teamName)) { p.sendMessage("§6Ce nom est déjà §fpris."); return; }
                 
-                Team newTeam = new Team(teamName, p.getName(), uuid);
+                TeamData newTeam = new TeamData(teamName, p.getName(), uuid);
                 teams.put(teamName, newTeam);
                 playerTeam.put(uuid, teamName);
                 p.sendMessage("§6Team §f" + teamName + " §6créée avec succès !");
@@ -186,7 +290,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor {
 
             case "sethq":
                 if (currentTeam == null) { p.sendMessage("§6Tu n'as pas §dde team."); return; }
-                Team t = teams.get(currentTeam);
+                TeamData t = teams.get(currentTeam);
                 if (!t.creator.equals(uuid)) { p.sendMessage("§6Seul le créateur §fpeut faire ça."); return; }
                 t.hq = p.getLocation();
                 p.sendMessage("§6HQ de la team §fdéfini !");
@@ -206,7 +310,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor {
             case "info":
                 String targetTeam = (args.length > 1) ? args[1] : currentTeam;
                 if (targetTeam == null || !teams.containsKey(targetTeam)) { p.sendMessage("§6Team §fintrouvable."); return; }
-                Team infoTeam = teams.get(targetTeam);
+                TeamData infoTeam = teams.get(targetTeam);
                 p.sendMessage("§6--- Team: §f" + infoTeam.name + " §6---");
                 p.sendMessage("§6Créateur: §f" + infoTeam.creatorName);
                 p.sendMessage("§6Membres (" + infoTeam.members.size() + "): §f" + String.join(", ", infoTeam.members));
@@ -214,11 +318,10 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor {
                 
             case "leave":
                 if (currentTeam == null) { p.sendMessage("§6Tu n'as pas §dde team."); return; }
-                Team lTeam = teams.get(currentTeam);
-                
+                TeamData lTeam = teams.get(currentTeam);
                 if (lTeam.creator.equals(uuid)) {
                     if (lTeam.members.size() > 1) {
-                        p.sendMessage("§6Tu ne peux pas dissoudre ta team : §fil reste des membres. Utilise /team kick d'abord.");
+                        p.sendMessage("§6Tu ne peux pas dissoudre ta team : §fil reste des membres.");
                         return;
                     }
                     teams.remove(currentTeam);
@@ -233,7 +336,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor {
 
             case "kick":
                 if (currentTeam == null) { p.sendMessage("§6Tu n'as pas §dde team."); return; }
-                Team kTeam = teams.get(currentTeam);
+                TeamData kTeam = teams.get(currentTeam);
                 if (!kTeam.creator.equals(uuid)) {
                     p.sendMessage("§6Seul le créateur §fpeut expulser des membres.");
                     return;
@@ -243,15 +346,10 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor {
                     return;
                 }
                 String targetName = args[1];
-                if (targetName.equalsIgnoreCase(p.getName())) {
-                    p.sendMessage("§6Tu ne peux pas §fte kick toi-même.");
-                    return;
-                }
                 if (!kTeam.members.contains(targetName)) {
                     p.sendMessage("§6Ce joueur n'est pas §fdans ta team.");
                     return;
                 }
-
                 kTeam.members.remove(targetName);
                 Player targetPlayer = Bukkit.getPlayer(targetName);
                 if (targetPlayer != null) {
@@ -272,13 +370,16 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor {
 
     private void updateScoreboards() {
         for (Player p : Bukkit.getOnlinePlayers()) {
-            Scoreboard board = Bukkit.getScoreboardManager().getNewScoreboard();
-            Objective obj = board.registerNewObjective("mcteams", "dummy");
-            obj.setDisplaySlot(DisplaySlot.SIDEBAR);
-            obj.setDisplayName("§6SoupTeams Map 1");
+            Scoreboard board = p.getScoreboard();
+            Objective obj = board.getObjective("mcteams");
+            if (obj == null) {
+                obj = board.registerNewObjective("mcteams", "dummy");
+                obj.setDisplaySlot(DisplaySlot.SIDEBAR);
+            }
+            obj.setDisplayName("§6SoupTeams §f[Map 1]");
 
             List<String> lines = new ArrayList<>();
-            lines.add("§m-----------------------");
+            lines.add("§m---------------------");
             
             String tName = playerTeam.getOrDefault(p.getUniqueId(), "Aucune");
             if(tName.length() > 10) tName = tName.substring(0, 10) + "..";
@@ -296,7 +397,6 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor {
                 obj.getScore(line + String.join("", Collections.nCopies(score, "§r"))).setScore(score);
                 score--;
             }
-            p.setScoreboard(board);
         }
     }
 
@@ -310,14 +410,14 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor {
         return false;
     }
 
-    class Team {
+    class TeamData {
         String name;
         String creatorName;
         UUID creator;
         List<String> members = new ArrayList<>();
         Location hq;
         
-        public Team(String name, String creatorName, UUID creator) {
+        public TeamData(String name, String creatorName, UUID creator) {
             this.name = name;
             this.creatorName = creatorName;
             this.creator = creator;
