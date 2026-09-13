@@ -6,6 +6,7 @@ import com.sk89q.worldguard.protection.regions.ProtectedRegion;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.Sound;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -13,10 +14,14 @@ import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
+import org.bukkit.event.entity.EntityDamageByEntityEvent;
+import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.scoreboard.DisplaySlot;
 import org.bukkit.scoreboard.Objective;
 import org.bukkit.scoreboard.Scoreboard;
@@ -32,18 +37,19 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
     private final Map<String, TeamData> teams = new HashMap<>();
     private final Map<UUID, String> playerTeam = new HashMap<>();
     private final Map<UUID, String> playerRanks = new HashMap<>();
+    private final Map<UUID, Long> combatTag = new HashMap<>();
     private final List<MarketItem> market = new ArrayList<>();
 
     @Override
     public void onEnable() {
-        String[] cmds = {"setspawn", "go", "team", "deposit", "balance", "sell", "buy", "buyview", "setrank"};
+        String[] cmds = {"setspawn", "spawn", "go", "team", "deposit", "balance", "sell", "buy", "buyview", "setrank"};
         for (String cmd : cmds) {
             getCommand(cmd).setExecutor(this);
         }
 
         getServer().getPluginManager().registerEvents(this, this);
         Bukkit.getScheduler().runTaskTimer(this, this::updateScoreboards, 0L, 20L);
-        getLogger().info("McTeams est activé avec les grades !");
+        getLogger().info("McTeams est activé avec les systèmes de CombatTag et Spawn !");
     }
 
     @EventHandler
@@ -51,6 +57,64 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         Player p = e.getPlayer();
         playerRanks.putIfAbsent(p.getUniqueId(), "default");
         setupPlayerScoreboard(p);
+        if (spawnLocation != null) {
+            p.teleport(spawnLocation);
+        }
+    }
+
+    @EventHandler
+    public void onQuit(PlayerQuitEvent e) {
+        Player p = e.getPlayer();
+        if (isInCombat(p)) {
+            p.setHealth(0.0); // Tue le joueur si déconnexion en combat
+            Bukkit.broadcastMessage("§6[Combat] §f" + p.getName() + " §6s'est déconnecté en combat et a été tué !");
+        }
+        combatTag.remove(p.getUniqueId());
+    }
+
+    @EventHandler
+    public void onDeath(PlayerDeathEvent e) {
+        Player p = e.getEntity();
+        combatTag.remove(p.getUniqueId());
+        
+        // Téléportation immédiate au spawn après la mort
+        Bukkit.getScheduler().runTaskLater(this, () -> {
+            if (spawnLocation != null) {
+                p.spigot().respawn();
+                p.teleport(spawnLocation);
+                p.sendMessage("§6Tu es mort et as été réinitialisé au §fspawn §6avec protection !");
+            }
+        }, 2L);
+    }
+
+    @EventHandler
+    public void onDamage(EntityDamageByEntityEvent e) {
+        if (e.getEntity() instanceof Player && e.getDamager() instanceof Player) {
+            Player victim = (Player) e.getEntity();
+            Player attacker = (Player) e.getDamager();
+
+            // Empêcher les dégâts si l'un d'eux est protégé au spawn
+            if (isInSpawnRegion(victim) || isInSpawnRegion(attacker)) {
+                e.setCancelled(true);
+                attacker.sendMessage("§6Impossible de frapper : cible ou attaquant sous protection du §fspawn §6!");
+                return;
+            }
+
+            // Application du Combat Tag (45 secondes)
+            long expireTime = System.currentTimeMillis() + 45000L;
+            combatTag.put(victim.getUniqueId(), expireTime);
+            combatTag.put(attacker.getUniqueId(), expireTime);
+        }
+    }
+
+    private boolean isInCombat(Player p) {
+        UUID uuid = p.getUniqueId();
+        if (!combatTag.containsKey(uuid)) return false;
+        if (System.currentTimeMillis() > combatTag.get(uuid)) {
+            combatTag.remove(uuid);
+            return false;
+        }
+        return true;
     }
 
     @EventHandler
@@ -77,12 +141,10 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                 board = Bukkit.getScoreboardManager().getNewScoreboard();
                 p.setScoreboard(board);
             }
-
             createRankTeamInBoard(board, "01admin", "§c[Admin] ");
             createRankTeamInBoard(board, "02mod", "§b[Mod] ");
             createRankTeamInBoard(board, "03vip", "§6[VIP] ");
             createRankTeamInBoard(board, "04default", "§f[Player] ");
-
             assignPlayerToRankTeam(board, target);
         }
     }
@@ -108,7 +170,6 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                 t.removeEntry(target.getName());
             }
         }
-
         Team t = board.getTeam(teamKey);
         if (t != null) {
             t.addEntry(target.getName());
@@ -126,6 +187,47 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                 if (!p.isOp()) return true;
                 spawnLocation = p.getLocation();
                 p.sendMessage("§6Spawn défini §favec succès !");
+                break;
+
+            case "spawn":
+                if (spawnLocation == null) {
+                    p.sendMessage("§6Le spawn n'a pas §fdéfini par un admin.");
+                    return true;
+                }
+                if (isInCombat(p)) {
+                    p.sendMessage("§6Impossible de faire §f/spawn §6en étant en combat tag !");
+                    return true;
+                }
+                p.sendMessage("§6Téléportation au spawn §fdans 15 secondes... Ne bouge pas !");
+                Location locBefore = p.getLocation();
+                
+                // Task de 15 secondes pour /spawn
+                new BukkitRunnable() {
+                    int countdown = 15;
+                    @Override
+                    public void run() {
+                        if (!p.isOnline() || !p.getLocation().getWorld().equals(locBefore.getWorld()) || p.getLocation().distanceSquared(locBefore) > 0.5) {
+                            p.sendMessage("§6Téléportation annulée §f(mouvement détecté).");
+                            cancel();
+                            return;
+                        }
+                        if (isInCombat(p)) {
+                            p.sendMessage("§6Téléportation annulée §f(attaqué en combat).");
+                            cancel();
+                            return;
+                        }
+                        if (countdown <= 0) {
+                            p.teleport(spawnLocation);
+                            p.sendMessage("§6Téléportation effectuée §fau spawn !");
+                            cancel();
+                            return;
+                        }
+                        if (countdown <= 5 || countdown == 15) {
+                            p.sendMessage("§6Téléportation dans §f" + countdown + " secondes...");
+                        }
+                        countdown--;
+                    }
+                }.runTaskTimer(this, 0L, 20L);
                 break;
 
             case "setrank":
@@ -154,6 +256,10 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                 break;
 
             case "go":
+                if (isInCombat(p)) {
+                    p.sendMessage("§6Impossible de se téléporter §fen combat tag !");
+                    return true;
+                }
                 if (args.length == 0) {
                     p.sendMessage("§6Usage: §f/go set <nom> ou /go <nom>");
                     return true;
@@ -293,6 +399,10 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
 
             case "hq":
                 if (currentTeam == null) { p.sendMessage("§6Tu n'as pas §dde team."); return; }
+                if (isInCombat(p)) {
+                    p.sendMessage("§6Impossible de se téléporter au HQ §fen combat tag !");
+                    return;
+                }
                 if (isPlayerNearby(p, 25)) {
                     p.sendMessage("§6Téléportation bloquée : §fune entité/joueur est à moins de 25 blocs !");
                     return;
@@ -349,7 +459,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                 Player targetPlayer = Bukkit.getPlayer(targetName);
                 if (targetPlayer != null) {
                     playerTeam.remove(targetPlayer.getUniqueId());
-                    targetPlayer.sendMessage("§6Tu as été expulsé §fde la team.");
+                    targetPlayer.sendMessage("§6Tu été expulsé §fde la team.");
                 }
                 p.sendMessage("§6Le joueur §f" + targetName + " §6a été expulsé.");
                 break;
