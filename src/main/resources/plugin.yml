@@ -24,3 +24,5 @@ commands:
     description: Voir son solde
   setrank:
     description: Set rank du joueur
+  lang:
+    description: Changer la langue du plugin
