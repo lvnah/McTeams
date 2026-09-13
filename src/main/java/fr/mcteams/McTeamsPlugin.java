@@ -15,6 +15,8 @@ import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
+import org.bukkit.event.block.BlockBreakEvent;
+import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
@@ -40,6 +42,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
     private final Map<UUID, String> playerRanks = new HashMap<>();
     private final Map<UUID, Long> combatTag = new HashMap<>();
     private final Map<UUID, String> activeTeleports = new HashMap<>();
+    private final Map<UUID, Boolean> spawnProtected = new HashMap<>();
     private final List<MarketItem> market = new ArrayList<>();
 
     @Override
@@ -58,6 +61,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         for (Player p : Bukkit.getOnlinePlayers()) {
             setupPlayerScoreboard(p);
             updatePlayerDisplayNameAndTab(p);
+            spawnProtected.putIfAbsent(p.getUniqueId(), true);
         }
 
         Bukkit.getScheduler().runTaskTimer(this, this::updateScoreboards, 0L, 20L);
@@ -186,6 +190,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
     public void onJoin(PlayerJoinEvent e) {
         Player p = e.getPlayer();
         playerRanks.putIfAbsent(p.getUniqueId(), "default");
+        spawnProtected.put(p.getUniqueId(), true);
         setupPlayerScoreboard(p);
         updatePlayerDisplayNameAndTab(p);
         if (spawnLocation != null) {
@@ -202,6 +207,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         }
         combatTag.remove(p.getUniqueId());
         activeTeleports.remove(p.getUniqueId());
+        spawnProtected.remove(p.getUniqueId());
     }
 
     @EventHandler
@@ -210,6 +216,9 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         combatTag.remove(p.getUniqueId());
         activeTeleports.remove(p.getUniqueId());
         
+        // Récupération de la protection à la mort
+        spawnProtected.put(p.getUniqueId(), true);
+
         Bukkit.getScheduler().runTaskLater(this, () -> {
             if (spawnLocation != null) {
                 p.spigot().respawn();
@@ -220,12 +229,33 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
     }
 
     @EventHandler
+    public void onBlockBreak(BlockBreakEvent e) {
+        Player p = e.getPlayer();
+        if (p.isOp()) return;
+        if (isInSpawnRegion(p) || (spawnLocation != null && p.getLocation().distanceSquared(spawnLocation) <= 2500)) {
+            e.setCancelled(true);
+            p.sendMessage("§6Impossible de casser des blocs dans la zone protégée du spawn !");
+        }
+    }
+
+    @EventHandler
+    public void onBlockPlace(BlockPlaceEvent e) {
+        Player p = e.getPlayer();
+        if (p.isOp()) return;
+        if (isInSpawnRegion(p) || (spawnLocation != null && p.getLocation().distanceSquared(spawnLocation) <= 2500)) {
+            e.setCancelled(true);
+            p.sendMessage("§6Impossible de poser des blocs dans la zone protégée du spawn !");
+        }
+    }
+
+    @EventHandler
     public void onDamage(EntityDamageByEntityEvent e) {
         if (e.getEntity() instanceof Player && e.getDamager() instanceof Player) {
             Player victim = (Player) e.getEntity();
             Player attacker = (Player) e.getDamager();
 
-            if (isInSpawnRegion(victim) || isInSpawnRegion(attacker)) {
+            // Empêcher les dégâts si l'un d'eux a la protection de spawn active
+            if (spawnProtected.getOrDefault(victim.getUniqueId(), false) || spawnProtected.getOrDefault(attacker.getUniqueId(), false)) {
                 e.setCancelled(true);
                 attacker.sendMessage("§6Impossible de frapper : cible ou attaquant sous protection du §fspawn §6!");
                 return;
@@ -347,7 +377,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                     p.sendMessage("§6Impossible de faire §f/spawn §6en étant en combat tag !");
                     return true;
                 }
-                startTeleportation(p, spawnLocation, "Spawn", 15);
+                startTeleportation(p, spawnLocation, "Spawn", 15, true);
                 break;
 
             case "setrank":
@@ -409,7 +439,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                     String homeName = args[0].toLowerCase();
                     if (homes.containsKey(homeName)) {
                         int delay = isPlayerNearby(p, 30) ? 5 : 0;
-                        startTeleportation(p, homes.get(homeName), "Go: " + homeName, delay);
+                        startTeleportation(p, homes.get(homeName), "Go: " + homeName, delay, false);
                     } else {
                         p.sendMessage("§6Ce go §fn'existe pas.");
                     }
@@ -502,10 +532,15 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         return true;
     }
 
-    private void startTeleportation(Player p, Location targetLoc, String name, int delaySeconds) {
+    private void startTeleportation(Player p, Location targetLoc, String name, int delaySeconds, boolean giveSpawnProtection) {
         if (delaySeconds <= 0) {
             p.teleport(targetLoc);
-            p.sendMessage("§6Téléportation effectuée au §f" + name + " §6!");
+            if (giveSpawnProtection) {
+                spawnProtected.put(p.getUniqueId(), true);
+                p.sendMessage("§6Téléportation effectuée au spawn avec §aprotection §6!");
+            } else {
+                p.sendMessage("§6Téléportation effectuée au §f" + name + " §6!");
+            }
             return;
         }
 
@@ -535,7 +570,12 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                 }
                 if (countdown <= 0) {
                     p.teleport(targetLoc);
-                    p.sendMessage("§6Téléportation effectuée au §f" + name + " §6!");
+                    if (giveSpawnProtection) {
+                        spawnProtected.put(p.getUniqueId(), true);
+                        p.sendMessage("§6Téléportation effectuée au spawn avec §aprotection §6!");
+                    } else {
+                        p.sendMessage("§6Téléportation effectuée au §f" + name + " §6!");
+                    }
                     activeTeleports.remove(p.getUniqueId());
                     cancel();
                     return;
@@ -587,7 +627,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                     p.sendMessage("§6Ta team n'a pas §dde HQ.");
                 } else {
                     int delay = isPlayerNearby(p, 30) ? 5 : 0;
-                    startTeleportation(p, hq, "Team HQ", delay);
+                    startTeleportation(p, hq, "Team HQ", delay, false);
                 }
                 break;
                 
@@ -661,6 +701,16 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
 
     private void updateScoreboards() {
         for (Player p : Bukkit.getOnlinePlayers()) {
+            UUID uuid = p.getUniqueId();
+            
+            // Si le joueur est protégé mais qu'il quitte la région spawn, il perd sa protection
+            if (spawnProtected.getOrDefault(uuid, false)) {
+                if (!isInSpawnRegion(p)) {
+                    spawnProtected.put(uuid, false);
+                    p.sendMessage("§6Tu as quitté la zone du spawn, tu as perdu ta §cprotection §6!");
+                }
+            }
+
             Scoreboard board = p.getScoreboard();
             Objective obj = board.getObjective("mcteams");
             if (obj == null) {
@@ -678,17 +728,17 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
             List<String> lines = new ArrayList<>();
             lines.add("§m---------------------");
             
-            String tName = playerTeam.getOrDefault(p.getUniqueId(), "Aucune");
+            String tName = playerTeam.getOrDefault(uuid, "Aucune");
             if(tName.length() > 10) tName = tName.substring(0, 10) + "..";
             lines.add("§6Team: §f" + tName);
             
-            lines.add("§6Balance: §f" + balances.getOrDefault(p.getUniqueId(), 0.0));
+            lines.add("§6Balance: §f" + balances.getOrDefault(uuid, 0.0));
             
-            boolean inSpawn = isInSpawnRegion(p);
-            lines.add("§6Spawn protection: " + (inSpawn ? "§aEnable" : "§cDisable"));
+            boolean isProtected = spawnProtected.getOrDefault(uuid, false);
+            lines.add("§6Spawn protection: " + (isProtected ? "§aEnable" : "§cDisable"));
 
-            if (activeTeleports.containsKey(p.getUniqueId())) {
-                lines.add("§6TP: §f" + activeTeleports.get(p.getUniqueId()));
+            if (activeTeleports.containsKey(uuid)) {
+                lines.add("§6TP: §f" + activeTeleports.get(uuid));
             }
             
             lines.add("§f§m---------------------");
