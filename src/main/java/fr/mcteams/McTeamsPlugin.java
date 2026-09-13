@@ -41,7 +41,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
     private final Map<UUID, Long> combatTag = new HashMap<>();
     private final List<MarketItem> market = new ArrayList<>();
 
-    @_Override
+    @Override
     public void onEnable() {
         getConfig().options().copyDefaults(true);
         saveConfig();
@@ -56,13 +56,14 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         
         for (Player p : Bukkit.getOnlinePlayers()) {
             setupPlayerScoreboard(p);
+            updatePlayerDisplayNameAndTab(p);
         }
 
         Bukkit.getScheduler().runTaskTimer(this, this::updateScoreboards, 0L, 20L);
         getLogger().info("McTeams activé et données chargées avec succès !");
     }
 
-    @_Override
+    @Override
     public void onDisable() {
         saveData();
     }
@@ -320,7 +321,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         }
     }
 
-    @_Override
+    @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (!(sender instanceof Player)) return true;
         Player p = (Player) sender;
@@ -348,7 +349,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                 
                 new BukkitRunnable() {
                     int countdown = 15;
-                    @_Override
+                    @Override
                     public void run() {
                         if (!p.isOnline() || !p.getLocation().getWorld().equals(locBefore.getWorld()) || p.getLocation().distanceSquared(locBefore) > 0.5) {
                             p.sendMessage("§6Téléportation annulée §f(mouvement détecté).");
