@@ -475,12 +475,9 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
 
     private void updateScoreboards() {
         for (Player p : Bukkit.getOnlinePlayers()) {
-            Scoreboard board = p.getScoreboard();
-            Objective obj = board.getObjective("mcteams");
-            if (obj == null) {
-                obj = board.registerNewObjective("mcteams", "dummy");
-                obj.setDisplaySlot(DisplaySlot.SIDEBAR);
-            }
+            Scoreboard board = Bukkit.getScoreboardManager().getNewScoreboard();
+            Objective obj = board.registerNewObjective("mcteams", "dummy");
+            obj.setDisplaySlot(DisplaySlot.SIDEBAR);
             obj.setDisplayName("§6SoupTeams §f[Map 1]");
 
             List<String> lines = new ArrayList<>();
@@ -502,6 +499,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                 obj.getScore(line + String.join("", Collections.nCopies(score, "§r"))).setScore(score);
                 score--;
             }
+            p.setScoreboard(board);
         }
     }
 
