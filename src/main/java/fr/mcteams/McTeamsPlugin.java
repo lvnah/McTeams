@@ -6,6 +6,7 @@ import com.sk89q.worldguard.protection.regions.ProtectedRegion;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.World;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -65,30 +66,48 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         saveData();
     }
 
-    private void saveData() {
-        getConfig().set("spawn", spawnLocation);
+    private String serializeLocation(Location loc) {
+        if (loc == null || loc.getWorld() == null) return null;
+        return loc.getWorld().getName() + ";" + loc.getX() + ";" + loc.getY() + ";" + loc.getZ() + ";" + loc.getYaw() + ";" + loc.getPitch();
+    }
 
-        // Sauvegarde des balances
+    private Location deserializeLocation(String s) {
+        if (s == null || s.isEmpty()) return null;
+        try {
+            String[] parts = s.split(";");
+            World w = Bukkit.getWorld(parts[0]);
+            if (w == null) return null;
+            double x = Double.parseDouble(parts[1]);
+            double y = Double.parseDouble(parts[2]);
+            double z = Double.parseDouble(parts[3]);
+            float yaw = Float.parseFloat(parts[4]);
+            float pitch = Float.parseFloat(parts[5]);
+            return new Location(w, x, y, z, yaw, pitch);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private void saveData() {
+        getConfig().set("spawn", serializeLocation(spawnLocation));
+
         getConfig().set("balances", null);
         for (Map.Entry<UUID, Double> entry : balances.entrySet()) {
             getConfig().set("balances." + entry.getKey().toString(), entry.getValue());
         }
 
-        // Sauvegarde des grades
         getConfig().set("ranks", null);
         for (Map.Entry<UUID, String> entry : playerRanks.entrySet()) {
             getConfig().set("ranks." + entry.getKey().toString(), entry.getValue());
         }
 
-        // Sauvegarde des homes (/go)
         getConfig().set("homes", null);
         for (Map.Entry<UUID, Map<String, Location>> entry : playerHomes.entrySet()) {
             for (Map.Entry<String, Location> home : entry.getValue().entrySet()) {
-                getConfig().set("homes." + entry.getKey().toString() + "." + home.getKey(), home.getValue());
+                getConfig().set("homes." + entry.getKey().toString() + "." + home.getKey(), serializeLocation(home.getValue()));
             }
         }
 
-        // Sauvegarde des teams
         getConfig().set("teams", null);
         for (Map.Entry<String, TeamData> entry : teams.entrySet()) {
             String path = "teams." + entry.getKey();
@@ -96,16 +115,15 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
             getConfig().set(path + ".creator", t.creator.toString());
             getConfig().set(path + ".creatorName", t.creatorName);
             getConfig().set(path + ".members", t.members);
-            getConfig().set(path + ".hq", t.hq);
+            getConfig().set(path + ".hq", serializeLocation(t.hq));
         }
 
         saveConfig();
     }
 
     private void loadData() {
-        spawnLocation = getConfig().getLocation("spawn");
+        spawnLocation = deserializeLocation(getConfig().getString("spawn"));
 
-        // Chargement des balances
         ConfigurationSection balSec = getConfig().getConfigurationSection("balances");
         if (balSec != null) {
             for (String key : balSec.getKeys(false)) {
@@ -113,7 +131,6 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
             }
         }
 
-        // Chargement des grades
         ConfigurationSection rankSec = getConfig().getConfigurationSection("ranks");
         if (rankSec != null) {
             for (String key : rankSec.getKeys(false)) {
@@ -121,7 +138,6 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
             }
         }
 
-        // Chargement des homes (/go)
         ConfigurationSection homeSec = getConfig().getConfigurationSection("homes");
         if (homeSec != null) {
             for (String uuidStr : homeSec.getKeys(false)) {
@@ -130,14 +146,14 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                 ConfigurationSection playerHomeSec = homeSec.getConfigurationSection(uuidStr);
                 if (playerHomeSec != null) {
                     for (String homeName : playerHomeSec.getKeys(false)) {
-                        homes.put(homeName, playerHomeSec.getLocation(homeName));
+                        Location loc = deserializeLocation(playerHomeSec.getString(homeName));
+                        if (loc != null) homes.put(homeName, loc);
                     }
                 }
                 playerHomes.put(uuid, homes);
             }
         }
 
-        // Chargement des teams
         ConfigurationSection teamSec = getConfig().getConfigurationSection("teams");
         if (teamSec != null) {
             for (String teamName : teamSec.getKeys(false)) {
@@ -145,7 +161,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                 UUID creator = UUID.fromString(getConfig().getString(path + ".creator"));
                 String creatorName = getConfig().getString(path + ".creatorName");
                 List<String> members = getConfig().getStringList(path + ".members");
-                Location hq = getConfig().getLocation(path + ".hq");
+                Location hq = deserializeLocation(getConfig().getString(path + ".hq"));
 
                 TeamData t = new TeamData(teamName, creatorName, creator);
                 t.members = members;
