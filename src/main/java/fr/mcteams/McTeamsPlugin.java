@@ -41,9 +41,10 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
     private final Map<UUID, Long> combatTag = new HashMap<>();
     private final List<MarketItem> market = new ArrayList<>();
 
-    @Override
+    @_Override
     public void onEnable() {
-        saveDefaultConfig();
+        getConfig().options().copyDefaults(true);
+        saveConfig();
         loadData();
 
         String[] cmds = {"setspawn", "spawn", "go", "team", "deposit", "balance", "sell", "buy", "buyview", "setrank"};
@@ -61,7 +62,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         getLogger().info("McTeams activé et données chargées avec succès !");
     }
 
-    @Override
+    @_Override
     public void onDisable() {
         saveData();
     }
@@ -184,6 +185,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         Player p = e.getPlayer();
         playerRanks.putIfAbsent(p.getUniqueId(), "default");
         setupPlayerScoreboard(p);
+        updatePlayerDisplayNameAndTab(p);
         if (spawnLocation != null) {
             p.teleport(spawnLocation);
         }
@@ -245,21 +247,32 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
     public void onChat(AsyncPlayerChatEvent e) {
         Player p = e.getPlayer();
         String rank = playerRanks.getOrDefault(p.getUniqueId(), "default");
-        String prefix = getRankPrefix(rank);
+        String colorCode = getRankColorCode(rank);
         
         String clan = playerTeam.get(p.getUniqueId());
-        String clanTag = (clan != null) ? "§6[" + clan + "] " : "";
+        String clanTag = (clan != null) ? "§f[" + clan + "] " : "";
         
-        e.setFormat(clanTag + prefix + " §f" + p.getName() + " §7> §f" + e.getMessage());
+        e.setFormat(clanTag + colorCode + p.getName() + " §7> §f" + e.getMessage());
     }
 
-    private String getRankPrefix(String rank) {
+    private String getRankColorCode(String rank) {
         switch (rank.toLowerCase()) {
-            case "vip": return "§6[VIP]";
-            case "mod": case "moderator": return "§b[Mod]";
-            case "admin": return "§c[Admin]";
-            default: return "§f[Player]";
+            case "owner": return "§4";
+            case "admin": return "§c";
+            case "mod": case "moderator": return "§b";
+            case "vip": return "§6";
+            default: return "§f";
         }
+    }
+
+    private void updatePlayerDisplayNameAndTab(Player p) {
+        String rank = playerRanks.getOrDefault(p.getUniqueId(), "default");
+        String colorCode = getRankColorCode(rank);
+        String clan = playerTeam.get(p.getUniqueId());
+        String clanTag = (clan != null) ? "§f[" + clan + "] " : "";
+
+        String formattedName = clanTag + colorCode + p.getName();
+        p.setPlayerListName(formattedName);
     }
 
     private void setupPlayerScoreboard(Player target) {
@@ -268,10 +281,11 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
             board = Bukkit.getScoreboardManager().getNewScoreboard();
             target.setScoreboard(board);
         }
-        createRankTeamInBoard(board, "01admin", "§c[Admin] ");
-        createRankTeamInBoard(board, "02mod", "§b[Mod] ");
-        createRankTeamInBoard(board, "03vip", "§6[VIP] ");
-        createRankTeamInBoard(board, "04default", "§f[Player] ");
+        createRankTeamInBoard(board, "01owner", "§4");
+        createRankTeamInBoard(board, "02admin", "§c");
+        createRankTeamInBoard(board, "03mod", "§b");
+        createRankTeamInBoard(board, "04vip", "§6");
+        createRankTeamInBoard(board, "05default", "§f");
 
         for (Player p : Bukkit.getOnlinePlayers()) {
             assignPlayerToRankTeam(p.getScoreboard(), target);
@@ -289,10 +303,11 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
 
     private void assignPlayerToRankTeam(Scoreboard board, Player target) {
         String rank = playerRanks.getOrDefault(target.getUniqueId(), "default").toLowerCase();
-        String teamKey = "04default";
-        if (rank.equals("admin")) teamKey = "01admin";
-        else if (rank.equals("mod") || rank.equals("moderator")) teamKey = "02mod";
-        else if (rank.equals("vip")) teamKey = "03vip";
+        String teamKey = "05default";
+        if (rank.equals("owner")) teamKey = "01owner";
+        else if (rank.equals("admin")) teamKey = "02admin";
+        else if (rank.equals("mod") || rank.equals("moderator")) teamKey = "03mod";
+        else if (rank.equals("vip")) teamKey = "04vip";
 
         for (Team t : board.getTeams()) {
             if (t.hasEntry(target.getName())) {
@@ -305,7 +320,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         }
     }
 
-    @Override
+    @_Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (!(sender instanceof Player)) return true;
         Player p = (Player) sender;
@@ -333,7 +348,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                 
                 new BukkitRunnable() {
                     int countdown = 15;
-                    @Override
+                    @_Override
                     public void run() {
                         if (!p.isOnline() || !p.getLocation().getWorld().equals(locBefore.getWorld()) || p.getLocation().distanceSquared(locBefore) > 0.5) {
                             p.sendMessage("§6Téléportation annulée §f(mouvement détecté).");
@@ -365,7 +380,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                     return true;
                 }
                 if (args.length != 2) {
-                    p.sendMessage("§6Usage: §f/setrank <joueur> <default|vip|mod|admin>");
+                    p.sendMessage("§6Usage: §f/setrank <joueur> <default|vip|mod|admin|owner>");
                     return true;
                 }
                 Player target = Bukkit.getPlayer(args[0]);
@@ -374,8 +389,8 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                     return true;
                 }
                 String newRank = args[1].toLowerCase();
-                if (!Arrays.asList("default", "vip", "mod", "admin").contains(newRank)) {
-                    p.sendMessage("§6Grades valides : §fdefault, vip, mod, admin");
+                if (!Arrays.asList("default", "vip", "mod", "admin", "owner").contains(newRank)) {
+                    p.sendMessage("§6Grades valides : §fdefault, vip, mod, admin, owner");
                     return true;
                 }
                 playerRanks.put(target.getUniqueId(), newRank);
@@ -383,6 +398,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                 for (Player online : Bukkit.getOnlinePlayers()) {
                     assignPlayerToRankTeam(online.getScoreboard(), target);
                 }
+                updatePlayerDisplayNameAndTab(target);
                 p.sendMessage("§6Grade de §f" + target.getName() + " §6défini sur : §f" + newRank);
                 target.sendMessage("§6Ton grade a été mis à jour : §f" + newRank);
                 break;
@@ -522,6 +538,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                 teams.put(teamName, newTeam);
                 playerTeam.put(uuid, teamName);
                 saveData();
+                updatePlayerDisplayNameAndTab(p);
                 p.sendMessage("§6Team §f" + teamName + " §6créée et sauvegardée !");
                 break;
 
@@ -569,11 +586,13 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                     teams.remove(currentTeam);
                     playerTeam.remove(uuid);
                     saveData();
+                    updatePlayerDisplayNameAndTab(p);
                     p.sendMessage("§6Tu as dissous §fta team.");
                 } else {
                     lTeam.members.remove(p.getName());
                     playerTeam.remove(uuid);
                     saveData();
+                    updatePlayerDisplayNameAndTab(p);
                     p.sendMessage("§6Tu as quitté §fta team.");
                 }
                 break;
@@ -598,6 +617,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                 Player targetPlayer = Bukkit.getPlayer(targetName);
                 if (targetPlayer != null) {
                     playerTeam.remove(targetPlayer.getUniqueId());
+                    updatePlayerDisplayNameAndTab(targetPlayer);
                     targetPlayer.sendMessage("§6Tu as été expulsé §fde la team.");
                 }
                 saveData();
