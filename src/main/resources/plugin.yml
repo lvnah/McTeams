@@ -22,3 +22,5 @@ commands:
     description: Convertir l'or en monnaie virtuelle
   balance:
     description: Voir son solde
+  setrank:
+    description: Set rank du joueur
