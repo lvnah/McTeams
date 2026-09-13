@@ -39,6 +39,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
     private final Map<UUID, String> playerTeam = new HashMap<>();
     private final Map<UUID, String> playerRanks = new HashMap<>();
     private final Map<UUID, Long> combatTag = new HashMap<>();
+    private final Map<UUID, String> activeTeleports = new HashMap<>();
     private final List<MarketItem> market = new ArrayList<>();
 
     @Override
@@ -200,12 +201,14 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
             Bukkit.broadcastMessage("§6[Combat] §f" + p.getName() + " §6s'est déconnecté en combat et a été tué !");
         }
         combatTag.remove(p.getUniqueId());
+        activeTeleports.remove(p.getUniqueId());
     }
 
     @EventHandler
     public void onDeath(PlayerDeathEvent e) {
         Player p = e.getEntity();
         combatTag.remove(p.getUniqueId());
+        activeTeleports.remove(p.getUniqueId());
         
         Bukkit.getScheduler().runTaskLater(this, () -> {
             if (spawnLocation != null) {
@@ -344,35 +347,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                     p.sendMessage("§6Impossible de faire §f/spawn §6en étant en combat tag !");
                     return true;
                 }
-                p.sendMessage("§6Téléportation au spawn §fdans 15 secondes... Ne bouge pas !");
-                Location locBefore = p.getLocation();
-                
-                new BukkitRunnable() {
-                    int countdown = 15;
-                    @Override
-                    public void run() {
-                        if (!p.isOnline() || !p.getLocation().getWorld().equals(locBefore.getWorld()) || p.getLocation().distanceSquared(locBefore) > 0.5) {
-                            p.sendMessage("§6Téléportation annulée §f(mouvement détecté).");
-                            cancel();
-                            return;
-                        }
-                        if (isInCombat(p)) {
-                            p.sendMessage("§6Téléportation annulée §f(attaqué en combat).");
-                            cancel();
-                            return;
-                        }
-                        if (countdown <= 0) {
-                            p.teleport(spawnLocation);
-                            p.sendMessage("§6Téléportation effectuée §fau spawn !");
-                            cancel();
-                            return;
-                        }
-                        if (countdown <= 5 || countdown == 15) {
-                            p.sendMessage("§6Téléportation dans §f" + countdown + " secondes...");
-                        }
-                        countdown--;
-                    }
-                }.runTaskTimer(this, 0L, 20L);
+                startTeleportation(p, spawnLocation, "Spawn", 15);
                 break;
 
             case "setrank":
@@ -410,10 +385,18 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                     return true;
                 }
                 if (args.length == 0) {
-                    p.sendMessage("§6Usage: §f/go set <nom> ou /go <nom>");
+                    p.sendMessage("§6Usage: §f/go set <nom> | /go <nom> | /go list");
                     return true;
                 }
                 Map<String, Location> homes = playerHomes.computeIfAbsent(uuid, k -> new HashMap<>());
+                if (args[0].equalsIgnoreCase("list")) {
+                    if (homes.isEmpty()) {
+                        p.sendMessage("§6Tu n'as aucun /go enregistré.");
+                    } else {
+                        p.sendMessage("§6Tes /go (" + homes.size() + "/3) : §f" + String.join(", ", homes.keySet()));
+                    }
+                    return true;
+                }
                 if (args[0].equalsIgnoreCase("set") && args.length == 2) {
                     if (homes.size() >= 3) {
                         p.sendMessage("§6Tu as déjà atteint la limite de §f3 /go §6!");
@@ -425,12 +408,8 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                 } else {
                     String homeName = args[0].toLowerCase();
                     if (homes.containsKey(homeName)) {
-                        if (isPlayerNearby(p, 25)) {
-                            p.sendMessage("§6Téléportation bloquée : §fun joueur est à moins de 25 blocs !");
-                            return true;
-                        }
-                        p.teleport(homes.get(homeName));
-                        p.sendMessage("§6Téléportation au go §f" + homeName + " §6!");
+                        int delay = isPlayerNearby(p, 30) ? 5 : 0;
+                        startTeleportation(p, homes.get(homeName), "Go: " + homeName, delay);
                     } else {
                         p.sendMessage("§6Ce go §fn'existe pas.");
                     }
@@ -523,6 +502,51 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         return true;
     }
 
+    private void startTeleportation(Player p, Location targetLoc, String name, int delaySeconds) {
+        if (delaySeconds <= 0) {
+            p.teleport(targetLoc);
+            p.sendMessage("§6Téléportation effectuée au §f" + name + " §6!");
+            return;
+        }
+
+        p.sendMessage("§6Téléportation au §f" + name + " §6dans §f" + delaySeconds + " secondes... Ne bouge pas !");
+        Location locBefore = p.getLocation();
+        
+        new BukkitRunnable() {
+            int countdown = delaySeconds;
+            @Override
+            public void run() {
+                if (!p.isOnline()) {
+                    activeTeleports.remove(p.getUniqueId());
+                    cancel();
+                    return;
+                }
+                if (!p.getLocation().getWorld().equals(locBefore.getWorld()) || p.getLocation().distanceSquared(locBefore) > 0.5) {
+                    p.sendMessage("§6Téléportation annulée §f(mouvement détecté).");
+                    activeTeleports.remove(p.getUniqueId());
+                    cancel();
+                    return;
+                }
+                if (isInCombat(p)) {
+                    p.sendMessage("§6Téléportation annulée §f(attaqué en combat).");
+                    activeTeleports.remove(p.getUniqueId());
+                    cancel();
+                    return;
+                }
+                if (countdown <= 0) {
+                    p.teleport(targetLoc);
+                    p.sendMessage("§6Téléportation effectuée au §f" + name + " §6!");
+                    activeTeleports.remove(p.getUniqueId());
+                    cancel();
+                    return;
+                }
+                
+                activeTeleports.put(p.getUniqueId(), name + " (" + countdown + "s)");
+                countdown--;
+            }
+        }.runTaskTimer(this, 0L, 20L);
+    }
+
     private void handleTeamCommand(Player p, String[] args) {
         String action = args[0].toLowerCase();
         UUID uuid = p.getUniqueId();
@@ -558,13 +582,13 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                     p.sendMessage("§6Impossible de se téléporter au HQ §fen combat tag !");
                     return;
                 }
-                if (isPlayerNearby(p, 25)) {
-                    p.sendMessage("§6Téléportation bloquée : §fune entité/joueur est à moins de 25 blocs !");
-                    return;
-                }
                 Location hq = teams.get(currentTeam).hq;
-                if (hq == null) p.sendMessage("§6Ta team n'a pas §dde HQ.");
-                else { p.teleport(hq); p.sendMessage("§6Téléportation au §fHQ §6!"); }
+                if (hq == null) {
+                    p.sendMessage("§6Ta team n'a pas §dde HQ.");
+                } else {
+                    int delay = isPlayerNearby(p, 30) ? 5 : 0;
+                    startTeleportation(p, hq, "Team HQ", delay);
+                }
                 break;
                 
             case "info":
@@ -573,6 +597,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                 TeamData infoTeam = teams.get(targetTeam);
                 p.sendMessage("§6--- Team: §f" + infoTeam.name + " §6---");
                 p.sendMessage("§6Créateur: §f" + infoTeam.creatorName);
+                p.sendMessage("§6HQ: §f" + (infoTeam.hq != null ? "Set" : "Non défini"));
                 p.sendMessage("§6Membres (" + infoTeam.members.size() + "): §f" + String.join(", ", infoTeam.members));
                 break;
                 
@@ -661,6 +686,10 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
             
             boolean inSpawn = isInSpawnRegion(p);
             lines.add("§6Spawn protection: " + (inSpawn ? "§aEnable" : "§cDisable"));
+
+            if (activeTeleports.containsKey(p.getUniqueId())) {
+                lines.add("§6TP: §f" + activeTeleports.get(p.getUniqueId()));
+            }
             
             lines.add("§f§m---------------------");
 
