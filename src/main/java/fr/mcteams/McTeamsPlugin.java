@@ -40,6 +40,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
     private final Map<String, TeamData> teams = new HashMap<>();
     private final Map<UUID, String> playerTeam = new HashMap<>();
     private final Map<UUID, String> playerRanks = new HashMap<>();
+    private final Map<UUID, String> playerLangs = new HashMap<>();
     private final Map<UUID, Long> combatTag = new HashMap<>();
     private final Map<UUID, String> activeTeleports = new HashMap<>();
     private final Map<UUID, Boolean> spawnProtected = new HashMap<>();
@@ -51,7 +52,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         saveConfig();
         loadData();
 
-        String[] cmds = {"setspawn", "spawn", "go", "team", "deposit", "balance", "sell", "buy", "buyview", "setrank"};
+        String[] cmds = {"setspawn", "spawn", "go", "team", "deposit", "balance", "sell", "buy", "buyview", "setrank", "lang"};
         for (String cmd : cmds) {
             getCommand(cmd).setExecutor(this);
         }
@@ -62,15 +63,147 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
             setupPlayerScoreboard(p);
             updatePlayerDisplayNameAndTab(p);
             spawnProtected.putIfAbsent(p.getUniqueId(), true);
+            playerLangs.putIfAbsent(p.getUniqueId(), "en");
         }
 
         Bukkit.getScheduler().runTaskTimer(this, this::updateScoreboards, 0L, 20L);
-        getLogger().info("McTeams activé et données chargées avec succès !");
+        getLogger().info("McTeams enabled and loaded successfully!");
     }
 
     @Override
     public void onDisable() {
         saveData();
+    }
+
+    private String getMsg(Player p, String key, Object... args) {
+        String lang = playerLangs.getOrDefault(p.getUniqueId(), "en");
+        Map<String, String> dict = getDictionary(lang);
+        String msg = dict.getOrDefault(key, key);
+        for (int i = 0; i < args.length; i++) {
+            msg = msg.replace("{" + i + "}", String.valueOf(args[i]));
+        }
+        return msg;
+    }
+
+    private Map<String, String> getDictionary(String lang) {
+        Map<String, String> map = new HashMap<>();
+        if (lang.equals("fr")) {
+            map.put("spawn_set", "§6Spawn défini et sauvegardé avec succès !");
+            map.put("spawn_not_set", "§6Le spawn n'a pas été défini par un admin.");
+            map.put("in_combat_tp", "§6Impossible de se téléporter en combat tag !");
+            map.put("tp_started", "§6Téléportation au {0} dans {1} secondes... Ne bouge pas !");
+            map.put("tp_cancelled_move", "§6Téléportation annulée (mouvement détecté).");
+            map.put("tp_cancelled_combat", "§6Téléportation annulée (attaqué en combat).");
+            map.put("tp_success", "§6Téléportation effectuée avec succès !");
+            map.put("spawn_protected_msg", "§6Téléportation effectuée au spawn avec §aprotection §6!");
+            map.put("rank_updated", "§6Grade de {0} défini sur : {1}");
+            map.put("rank_target_update", "§6Ton grade a été mis à jour : {0}");
+            map.put("go_limit", "§6Tu as déjà atteint la limite de 3 /go !");
+            map.put("go_set", "§6Go '{0}' défini et sauvegardé !");
+            map.put("go_not_found", "§6Ce go n'existe pas.");
+            map.put("go_list_empty", "§6Tu n'as aucun /go enregistré.");
+            map.put("go_list", "§6Tes /go ({0}/3) : §f{1}");
+            map.put("deposit_success", "§6Tu as déposé §f{0} lingots d'or. §6Nouveau solde: §f{1}");
+            map.put("deposit_empty", "§6Tu n'as pas d'or dans ton inventaire !");
+            map.put("balance_msg", "§6Ton solde est de : §f{0} Or");
+            map.put("sell_usage", "§6Usage: §f/sell <quantité> <prix>");
+            map.put("sell_not_enough", "§6Tu n'as pas assez de cet item en main !");
+            map.put("sell_success", "§6Item mis en vente sous l'ID §f{0} §6pour §f{1} Or §6!");
+            map.put("buy_usage", "§6Usage: §f/buy <id>");
+            map.put("buy_not_found", "§6Cet ID n'existe pas.");
+            map.put("buy_success", "§6Achat réussi !");
+            map.put("buy_no_money", "§6Tu n'as pas assez d'or !");
+            map.put("team_already", "§6Tu es déjà dans une team.");
+            map.put("team_created", "§6Team {0} créée et sauvegardée !");
+            map.put("hq_set", "§6HQ de la team défini et sauvegardé !");
+            map.put("hq_none", "§6Ta team n'a pas de HQ.");
+            map.put("team_not_in", "§6Tu n'as pas de team.");
+            map.put("team_kick", "§6Le joueur {0} a été expulsé.");
+            map.put("combat_death", "§6[Combat] §f{0} s'est déconnecté en combat et a été tué !");
+            map.put("death_respawn", "§6Tu es mort et as été réinitialisé au §fspawn §6avec protection !");
+            map.put("block_break_deny", "§6Impossible de casser des blocs dans la zone protégée du spawn !");
+            map.put("block_place_deny", "§6Impossible de poser des blocs dans la zone protégée du spawn !");
+            map.put("damage_deny", "§6Impossible de frapper : cible ou attaquant sous protection du spawn !");
+            map.put("lang_changed", "§6Langue changée en : §fFrançais");
+        } else if (lang.equals("es")) {
+            map.put("spawn_set", "§6¡Spawn definido y guardado con éxito!");
+            map.put("spawn_not_set", "§6El spawn no ha sido definido por un administrador.");
+            map.put("in_combat_tp", "§6¡No puedes teletransportarte en combat tag!");
+            map.put("tp_started", "§6Teletransportando a {0} en {1} segundos... ¡No te muevas!");
+            map.put("tp_cancelled_move", "§6Teletransportación cancelada (movimiento detectado).");
+            map.put("tp_cancelled_combat", "§6Teletransportación cancelada (atacado en combate).");
+            map.put("tp_success", "§6¡Teletransportación exitosa!");
+            map.put("spawn_protected_msg", "§6¡Teletransportado al spawn con §aprotección §6!");
+            map.put("rank_updated", "§6Rango de {0} establecido en: {1}");
+            map.put("rank_target_update", "§6Tu rango ha sido actualizado: {0}");
+            map.put("go_limit", "§6¡Ya has alcanzado el límite de 3 /go!");
+            map.put("go_set", "§6¡Go '{0}' definido y guardado!");
+            map.put("go_not_found", "§6Este go no existe.");
+            map.put("go_list_empty", "§6No tienes ningún /go guardado.");
+            map.put("go_list", "§6Tus /go ({0}/3) : §f{1}");
+            map.put("deposit_success", "§6Has depositado §f{0} lingotes de oro. §6Nuevo saldo: §f{1}");
+            map.put("deposit_empty", "§6¡No tienes oro en tu inventario!");
+            map.put("balance_msg", "§6Tu saldo es de: §f{0} Oro");
+            map.put("sell_usage", "§6Uso: §f/sell <cantidad> <precio>");
+            map.put("sell_not_enough", "§6¡No tienes suficiente de este objeto en la mano!");
+            map.put("sell_success", "§6¡Objeto puesto a la venta con ID §f{0} §6por §f{1} Oro §6!");
+            map.put("buy_usage", "§6Uso: §f/buy <id>");
+            map.put("buy_not_found", "§6Este ID no existe.");
+            map.put("buy_success", "§6¡Compra exitosa!");
+            map.put("buy_no_money", "§6¡No tienes suficiente oro!");
+            map.put("team_already", "§6Ya estás en un team.");
+            map.put("team_created", "§6¡Team {0} creado y guardado!");
+            map.put("hq_set", "§6¡HQ del team definido y guardado!");
+            map.put("hq_none", "§6Tu team no tiene HQ.");
+            map.put("team_not_in", "§6No estás en ningún team.");
+            map.put("team_kick", "§6El jugador {0} ha sido expulsado.");
+            map.put("combat_death", "§6[Combat] §f{0} se desconectó en combate y murió!");
+            map.put("death_respawn", "§6¡Has muerto y reaparecido en el §fspawn §6con protección!");
+            map.put("block_break_deny", "§6¡No puedes romper bloques en la zona protegida del spawn!");
+            map.put("block_place_deny", "§6¡No puedes colocar bloques en la zona protegida del spawn!");
+            map.put("damage_deny", "§6¡Imposible golpear: objetivo o atacante bajo protección del spawn!");
+            map.put("lang_changed", "§6Idioma cambiado a: §fEspañol");
+        } else {
+            // English default
+            map.put("spawn_set", "§6Spawn defined and saved successfully!");
+            map.put("spawn_not_set", "§6Spawn has not been set by an admin.");
+            map.put("in_combat_tp", "§6Cannot teleport while in combat tag!");
+            map.put("tp_started", "§6Teleporting to {0} in {1} seconds... Don't move!");
+            map.put("tp_cancelled_move", "§6Teleportation cancelled (movement detected).");
+            map.put("tp_cancelled_combat", "§6Teleportation cancelled (attacked in combat).");
+            map.put("tp_success", "§6Teleportation successful!");
+            map.put("spawn_protected_msg", "§6Teleported to spawn with §aprotection§6!");
+            map.put("rank_updated", "§6Rank of {0} set to: {1}");
+            map.put("rank_target_update", "§6Your rank has been updated: {0}");
+            map.put("go_limit", "§6You have reached the limit of 3 /go!");
+            map.put("go_set", "§6Go '{0}' defined and saved!");
+            map.put("go_not_found", "§6This go does not exist.");
+            map.put("go_list_empty", "§6You have no saved /go.");
+            map.put("go_list", "§6Your /go ({0}/3) : §f{1}");
+            map.put("deposit_success", "§6You deposited §f{0} gold ingots. §6New balance: §f{1}");
+            map.put("deposit_empty", "§6You don't have any gold in your inventory!");
+            map.put("balance_msg", "§6Your balance is: §f{0} Gold");
+            map.put("sell_usage", "§6Usage: §f/sell <quantity> <price>");
+            map.put("sell_not_enough", "§6You don't have enough of this item in hand!");
+            map.put("sell_success", "§6Item listed for sale with ID §f{0} §6for §f{1} Gold§6!");
+            map.put("buy_usage", "§6Usage: §f/buy <id>");
+            map.put("buy_not_found", "§6This ID does not exist.");
+            map.put("buy_success", "§6Purchase successful!");
+            map.put("buy_no_money", "§6You don't have enough gold!");
+            map.put("team_already", "§6You are already in a team.");
+            map.put("team_created", "§6Team {0} created and saved!");
+            map.put("hq_set", "§6Team HQ defined and saved!");
+            map.put("hq_none", "§6Your team has no HQ.");
+            map.put("team_not_in", "§6You are not in a team.");
+            map.put("team_kick", "§6Player {0} has been kicked.");
+            map.put("combat_death", "§6[Combat] §f{0} disconnected in combat and was killed!");
+            map.put("death_respawn", "§6You died and were reset to the §fspawn §6with protection!");
+            map.put("block_break_deny", "§6You cannot break blocks in the protected spawn area!");
+            map.put("block_place_deny", "§6You cannot place blocks in the protected spawn area!");
+            map.put("damage_deny", "§6Cannot hit: target or attacker under spawn protection!");
+            map.put("lang_changed", "§6Language changed to: §fEnglish");
+        }
+        return map;
     }
 
     private String serializeLocation(Location loc) {
@@ -108,6 +241,11 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
             getConfig().set("ranks." + entry.getKey().toString(), entry.getValue());
         }
 
+        getConfig().set("langs", null);
+        for (Map.Entry<UUID, String> entry : playerLangs.entrySet()) {
+            getConfig().set("langs." + entry.getKey().toString(), entry.getValue());
+        }
+
         getConfig().set("homes", null);
         for (Map.Entry<UUID, Map<String, Location>> entry : playerHomes.entrySet()) {
             for (Map.Entry<String, Location> home : entry.getValue().entrySet()) {
@@ -142,6 +280,13 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         if (rankSec != null) {
             for (String key : rankSec.getKeys(false)) {
                 playerRanks.put(UUID.fromString(key), rankSec.getString(key));
+            }
+        }
+
+        ConfigurationSection langSec = getConfig().getConfigurationSection("langs");
+        if (langSec != null) {
+            for (String key : langSec.getKeys(false)) {
+                playerLangs.put(UUID.fromString(key), langSec.getString(key));
             }
         }
 
@@ -190,6 +335,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
     public void onJoin(PlayerJoinEvent e) {
         Player p = e.getPlayer();
         playerRanks.putIfAbsent(p.getUniqueId(), "default");
+        playerLangs.putIfAbsent(p.getUniqueId(), "en");
         spawnProtected.put(p.getUniqueId(), true);
         setupPlayerScoreboard(p);
         updatePlayerDisplayNameAndTab(p);
@@ -203,7 +349,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         Player p = e.getPlayer();
         if (isInCombat(p)) {
             p.setHealth(0.0);
-            Bukkit.broadcastMessage("§6[Combat] §f" + p.getName() + " §6s'est déconnecté en combat et a été tué !");
+            Bukkit.broadcastMessage(getMsg(p, "combat_death", p.getName()));
         }
         combatTag.remove(p.getUniqueId());
         activeTeleports.remove(p.getUniqueId());
@@ -215,15 +361,13 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         Player p = e.getEntity();
         combatTag.remove(p.getUniqueId());
         activeTeleports.remove(p.getUniqueId());
-        
-        // Récupération de la protection à la mort
         spawnProtected.put(p.getUniqueId(), true);
 
         Bukkit.getScheduler().runTaskLater(this, () -> {
             if (spawnLocation != null) {
                 p.spigot().respawn();
                 p.teleport(spawnLocation);
-                p.sendMessage("§6Tu es mort et as été réinitialisé au §fspawn §6avec protection !");
+                p.sendMessage(getMsg(p, "death_respawn"));
             }
         }, 2L);
     }
@@ -234,7 +378,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         if (p.isOp()) return;
         if (isInSpawnRegion(p) || (spawnLocation != null && p.getLocation().distanceSquared(spawnLocation) <= 2500)) {
             e.setCancelled(true);
-            p.sendMessage("§6Impossible de casser des blocs dans la zone protégée du spawn !");
+            p.sendMessage(getMsg(p, "block_break_deny"));
         }
     }
 
@@ -244,7 +388,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         if (p.isOp()) return;
         if (isInSpawnRegion(p) || (spawnLocation != null && p.getLocation().distanceSquared(spawnLocation) <= 2500)) {
             e.setCancelled(true);
-            p.sendMessage("§6Impossible de poser des blocs dans la zone protégée du spawn !");
+            p.sendMessage(getMsg(p, "block_place_deny"));
         }
     }
 
@@ -254,10 +398,9 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
             Player victim = (Player) e.getEntity();
             Player attacker = (Player) e.getDamager();
 
-            // Empêcher les dégâts si l'un d'eux a la protection de spawn active
             if (spawnProtected.getOrDefault(victim.getUniqueId(), false) || spawnProtected.getOrDefault(attacker.getUniqueId(), false)) {
                 e.setCancelled(true);
-                attacker.sendMessage("§6Impossible de frapper : cible ou attaquant sous protection du §fspawn §6!");
+                attacker.sendMessage(getMsg(attacker, "damage_deny"));
                 return;
             }
 
@@ -361,20 +504,35 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         UUID uuid = p.getUniqueId();
 
         switch (command.getName().toLowerCase()) {
+            case "lang":
+                if (args.length != 1) {
+                    p.sendMessage("§6Usage: §f/lang <en|fr|es>");
+                    return true;
+                }
+                String lang = args[0].toLowerCase();
+                if (!Arrays.asList("en", "fr", "es").contains(lang)) {
+                    p.sendMessage("§6Languages: §fen, fr, es");
+                    return true;
+                }
+                playerLangs.put(uuid, lang);
+                saveData();
+                p.sendMessage(getMsg(p, "lang_changed"));
+                break;
+
             case "setspawn":
                 if (!p.isOp()) return true;
                 spawnLocation = p.getLocation();
                 saveData();
-                p.sendMessage("§6Spawn défini et sauvegardé §favec succès !");
+                p.sendMessage(getMsg(p, "spawn_set"));
                 break;
 
             case "spawn":
                 if (spawnLocation == null) {
-                    p.sendMessage("§6Le spawn n'a pas été défini par un admin.");
+                    p.sendMessage(getMsg(p, "spawn_not_set"));
                     return true;
                 }
                 if (isInCombat(p)) {
-                    p.sendMessage("§6Impossible de faire §f/spawn §6en étant en combat tag !");
+                    p.sendMessage(getMsg(p, "in_combat_tp"));
                     return true;
                 }
                 startTeleportation(p, spawnLocation, "Spawn", 15, true);
@@ -382,21 +540,21 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
 
             case "setrank":
                 if (!p.isOp()) {
-                    p.sendMessage("§6Tu n'as pas la permission §fde faire ça.");
+                    p.sendMessage("§6You do not have permission.");
                     return true;
                 }
                 if (args.length != 2) {
-                    p.sendMessage("§6Usage: §f/setrank <joueur> <default|vip|mod|admin|owner>");
+                    p.sendMessage("§6Usage: §f/setrank <player> <default|vip|mod|admin|owner>");
                     return true;
                 }
                 Player target = Bukkit.getPlayer(args[0]);
                 if (target == null) {
-                    p.sendMessage("§6Joueur introuvable §fou hors ligne.");
+                    p.sendMessage("§6Player not found.");
                     return true;
                 }
                 String newRank = args[1].toLowerCase();
                 if (!Arrays.asList("default", "vip", "mod", "admin", "owner").contains(newRank)) {
-                    p.sendMessage("§6Grades valides : §fdefault, vip, mod, admin, owner");
+                    p.sendMessage("§6Valid ranks: default, vip, mod, admin, owner");
                     return true;
                 }
                 playerRanks.put(target.getUniqueId(), newRank);
@@ -405,43 +563,43 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                     assignPlayerToRankTeam(online.getScoreboard(), target);
                 }
                 updatePlayerDisplayNameAndTab(target);
-                p.sendMessage("§6Grade de §f" + target.getName() + " §6défini sur : §f" + newRank);
-                target.sendMessage("§6Ton grade a été mis à jour : §f" + newRank);
+                p.sendMessage(getMsg(p, "rank_updated", target.getName(), newRank));
+                target.sendMessage(getMsg(target, "rank_target_update", newRank));
                 break;
 
             case "go":
                 if (isInCombat(p)) {
-                    p.sendMessage("§6Impossible de se téléporter §fen combat tag !");
+                    p.sendMessage(getMsg(p, "in_combat_tp"));
                     return true;
                 }
                 if (args.length == 0) {
-                    p.sendMessage("§6Usage: §f/go set <nom> | /go <nom> | /go list");
+                    p.sendMessage("§6Usage: §f/go set <name> | /go <name> | /go list");
                     return true;
                 }
                 Map<String, Location> homes = playerHomes.computeIfAbsent(uuid, k -> new HashMap<>());
                 if (args[0].equalsIgnoreCase("list")) {
                     if (homes.isEmpty()) {
-                        p.sendMessage("§6Tu n'as aucun /go enregistré.");
+                        p.sendMessage(getMsg(p, "go_list_empty"));
                     } else {
-                        p.sendMessage("§6Tes /go (" + homes.size() + "/3) : §f" + String.join(", ", homes.keySet()));
+                        p.sendMessage(getMsg(p, "go_list", homes.size(), String.join(", ", homes.keySet())));
                     }
                     return true;
                 }
                 if (args[0].equalsIgnoreCase("set") && args.length == 2) {
                     if (homes.size() >= 3) {
-                        p.sendMessage("§6Tu as déjà atteint la limite de §f3 /go §6!");
+                        p.sendMessage(getMsg(p, "go_limit"));
                         return true;
                     }
                     homes.put(args[1].toLowerCase(), p.getLocation());
                     saveData();
-                    p.sendMessage("§6Go §f'" + args[1] + "' §6défini et sauvegardé !");
+                    p.sendMessage(getMsg(p, "go_set", args[1]));
                 } else {
                     String homeName = args[0].toLowerCase();
                     if (homes.containsKey(homeName)) {
                         int delay = isPlayerNearby(p, 30) ? 5 : 0;
                         startTeleportation(p, homes.get(homeName), "Go: " + homeName, delay, false);
                     } else {
-                        p.sendMessage("§6Ce go §fn'existe pas.");
+                        p.sendMessage(getMsg(p, "go_not_found"));
                     }
                 }
                 break;
@@ -466,19 +624,19 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                 if (goldCount > 0) {
                     balances.put(uuid, balances.getOrDefault(uuid, 0.0) + goldCount);
                     saveData();
-                    p.sendMessage("§6Tu as déposé §f" + goldCount + " lingots d'or. §6Nouveau solde: §f" + balances.get(uuid));
+                    p.sendMessage(getMsg(p, "deposit_success", goldCount, balances.get(uuid)));
                 } else {
-                    p.sendMessage("§6Tu n'as pas d'or §fdans ton inventaire !");
+                    p.sendMessage(getMsg(p, "deposit_empty"));
                 }
                 break;
 
             case "balance":
-                p.sendMessage("§6Ton solde est de : §f" + balances.getOrDefault(uuid, 0.0) + " Or");
+                p.sendMessage(getMsg(p, "balance_msg", balances.getOrDefault(uuid, 0.0)));
                 break;
 
             case "sell":
                 if (args.length != 2) {
-                    p.sendMessage("§6Usage: §f/sell <quantité> <prix>");
+                    p.sendMessage(getMsg(p, "sell_usage"));
                     return true;
                 }
                 try {
@@ -486,46 +644,60 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                     double price = Double.parseDouble(args[1]);
                     ItemStack inHand = p.getItemInHand();
                     if (inHand == null || inHand.getType() == Material.AIR || inHand.getAmount() < qty) {
-                        p.sendMessage("§6Tu n'as pas assez §fde cet item en main !");
+                        p.sendMessage(getMsg(p, "sell_not_enough"));
                         return true;
                     }
+                    
+                    // Retirer l'item de l'inventaire
                     inHand.setAmount(inHand.getAmount() - qty);
+                    if (inHand.getAmount() <= 0) {
+                        p.setItemInHand(null);
+                    }
+                    
                     ItemStack toSell = inHand.clone();
                     toSell.setAmount(qty);
                     
-                    market.add(new MarketItem(UUID.randomUUID().toString().substring(0, 5), p.getName(), toSell, price));
-                    p.sendMessage("§6Item mis en vente pour §f" + price + " Or §6!");
+                    String itemId = toSell.getType().name().toLowerCase() + " (" + toSell.getTypeId() + ")";
+                    market.add(new MarketItem(itemId, p.getName(), uuid, toSell, price));
+                    p.sendMessage(getMsg(p, "sell_success", itemId, price));
                 } catch (NumberFormatException e) {
-                    p.sendMessage("§6Montants §finvalides.");
+                    p.sendMessage("§6Invalid amounts.");
                 }
                 break;
                 
             case "buyview":
-                p.sendMessage("§6--- Marché ---");
+                p.sendMessage("§6--- Market ---");
                 for (MarketItem item : market) {
-                    p.sendMessage("§6ID: §f" + item.id + " §6| §f" + item.item.getAmount() + "x " + item.item.getType() + " §6| Prix: §f" + item.price + " Or §6| Vendeur: §f" + item.seller);
+                    p.sendMessage("§6ID: §f" + item.id + " §6| §f" + item.item.getAmount() + "x " + item.item.getType().name().toLowerCase() + " §6| Price: §f" + item.price + " Gold §6| Seller: §f" + item.seller);
                 }
                 break;
 
             case "buy":
                 if (args.length != 1) {
-                    p.sendMessage("§6Usage: §f/buy <id>");
+                    p.sendMessage(getMsg(p, "buy_usage"));
                     return true;
                 }
                 MarketItem toBuy = market.stream().filter(m -> m.id.equalsIgnoreCase(args[0])).findFirst().orElse(null);
                 if (toBuy == null) {
-                    p.sendMessage("§6Cet ID §fn'existe pas.");
+                    p.sendMessage(getMsg(p, "buy_not_found"));
                     return true;
                 }
-                double balance = balances.getOrDefault(uuid, 0.0);
-                if (balance >= toBuy.price) {
-                    balances.put(uuid, balance - toBuy.price);
+                double buyerBalance = balances.getOrDefault(uuid, 0.0);
+                if (buyerBalance >= toBuy.price) {
+                    balances.put(uuid, buyerBalance - toBuy.price);
+                    balances.put(toBuy.sellerUuid, balances.getOrDefault(toBuy.sellerUuid, 0.0) + toBuy.price);
                     saveData();
+                    
                     p.getInventory().addItem(toBuy.item);
                     market.remove(toBuy);
-                    p.sendMessage("§6Achat §fréussi !");
+                    p.sendMessage(getMsg(p, "buy_success"));
+                    
+                    Player sellerPlayer = Bukkit.getPlayer(toBuy.sellerUuid);
+                    if (sellerPlayer != null) {
+                        sellerPlayer.sendMessage("§6Your item (" + toBuy.id + ") was sold for §f" + toBuy.price + " Gold§6!");
+                    }
                 } else {
-                    p.sendMessage("§6Tu n'as pas assez §fd'or !");
+                    p.sendMessage(getMsg(p, "buy_no_money"));
                 }
                 break;
         }
@@ -537,14 +709,14 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
             p.teleport(targetLoc);
             if (giveSpawnProtection) {
                 spawnProtected.put(p.getUniqueId(), true);
-                p.sendMessage("§6Téléportation effectuée au spawn avec §aprotection §6!");
+                p.sendMessage(getMsg(p, "spawn_protected_msg"));
             } else {
-                p.sendMessage("§6Téléportation effectuée au §f" + name + " §6!");
+                p.sendMessage(getMsg(p, "tp_success"));
             }
             return;
         }
 
-        p.sendMessage("§6Téléportation au §f" + name + " §6dans §f" + delaySeconds + " secondes... Ne bouge pas !");
+        p.sendMessage(getMsg(p, "tp_started", name, delaySeconds));
         Location locBefore = p.getLocation();
         
         new BukkitRunnable() {
@@ -557,13 +729,13 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                     return;
                 }
                 if (!p.getLocation().getWorld().equals(locBefore.getWorld()) || p.getLocation().distanceSquared(locBefore) > 0.5) {
-                    p.sendMessage("§6Téléportation annulée §f(mouvement détecté).");
+                    p.sendMessage(getMsg(p, "tp_cancelled_move"));
                     activeTeleports.remove(p.getUniqueId());
                     cancel();
                     return;
                 }
                 if (isInCombat(p)) {
-                    p.sendMessage("§6Téléportation annulée §f(attaqué en combat).");
+                    p.sendMessage(getMsg(p, "tp_cancelled_combat"));
                     activeTeleports.remove(p.getUniqueId());
                     cancel();
                     return;
@@ -572,9 +744,9 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                     p.teleport(targetLoc);
                     if (giveSpawnProtection) {
                         spawnProtected.put(p.getUniqueId(), true);
-                        p.sendMessage("§6Téléportation effectuée au spawn avec §aprotection §6!");
+                        p.sendMessage(getMsg(p, "spawn_protected_msg"));
                     } else {
-                        p.sendMessage("§6Téléportation effectuée au §f" + name + " §6!");
+                        p.sendMessage(getMsg(p, "tp_success"));
                     }
                     activeTeleports.remove(p.getUniqueId());
                     cancel();
@@ -594,37 +766,37 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
 
         switch (action) {
             case "create":
-                if (currentTeam != null) { p.sendMessage("§6Tu es déjà §fdans une team."); return; }
-                if (args.length < 2) { p.sendMessage("§6Usage: §f/team create <nom>"); return; }
+                if (currentTeam != null) { p.sendMessage(getMsg(p, "team_already")); return; }
+                if (args.length < 2) { p.sendMessage("§6Usage: §f/team create <name>"); return; }
                 String teamName = args[1];
-                if (teams.containsKey(teamName)) { p.sendMessage("§6Ce nom est déjà §fpris."); return; }
+                if (teams.containsKey(teamName)) { p.sendMessage("§6This name is already taken."); return; }
                 
                 TeamData newTeam = new TeamData(teamName, p.getName(), uuid);
                 teams.put(teamName, newTeam);
                 playerTeam.put(uuid, teamName);
                 saveData();
                 updatePlayerDisplayNameAndTab(p);
-                p.sendMessage("§6Team §f" + teamName + " §6créée et sauvegardée !");
+                p.sendMessage(getMsg(p, "team_created", teamName));
                 break;
 
             case "sethq":
-                if (currentTeam == null) { p.sendMessage("§6Tu n'as pas §dde team."); return; }
+                if (currentTeam == null) { p.sendMessage(getMsg(p, "team_not_in")); return; }
                 TeamData t = teams.get(currentTeam);
-                if (!t.creator.equals(uuid)) { p.sendMessage("§6Seul le créateur §fpeut faire ça."); return; }
+                if (!t.creator.equals(uuid)) { p.sendMessage("§6Only the creator can do this."); return; }
                 t.hq = p.getLocation();
                 saveData();
-                p.sendMessage("§6HQ de la team défini et sauvegardé !");
+                p.sendMessage(getMsg(p, "hq_set"));
                 break;
 
             case "hq":
-                if (currentTeam == null) { p.sendMessage("§6Tu n'as pas §dde team."); return; }
+                if (currentTeam == null) { p.sendMessage(getMsg(p, "team_not_in")); return; }
                 if (isInCombat(p)) {
-                    p.sendMessage("§6Impossible de se téléporter au HQ §fen combat tag !");
+                    p.sendMessage(getMsg(p, "in_combat_tp"));
                     return;
                 }
                 Location hq = teams.get(currentTeam).hq;
                 if (hq == null) {
-                    p.sendMessage("§6Ta team n'a pas §dde HQ.");
+                    p.sendMessage(getMsg(p, "hq_none"));
                 } else {
                     int delay = isPlayerNearby(p, 30) ? 5 : 0;
                     startTeleportation(p, hq, "Team HQ", delay, false);
@@ -633,50 +805,50 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                 
             case "info":
                 String targetTeam = (args.length > 1) ? args[1] : currentTeam;
-                if (targetTeam == null || !teams.containsKey(targetTeam)) { p.sendMessage("§6Team §fintrouvable."); return; }
+                if (targetTeam == null || !teams.containsKey(targetTeam)) { p.sendMessage("§6Team not found."); return; }
                 TeamData infoTeam = teams.get(targetTeam);
                 p.sendMessage("§6--- Team: §f" + infoTeam.name + " §6---");
-                p.sendMessage("§6Créateur: §f" + infoTeam.creatorName);
-                p.sendMessage("§6HQ: §f" + (infoTeam.hq != null ? "Set" : "Non défini"));
-                p.sendMessage("§6Membres (" + infoTeam.members.size() + "): §f" + String.join(", ", infoTeam.members));
+                p.sendMessage("§6Creator: §f" + infoTeam.creatorName);
+                p.sendMessage("§6HQ: §f" + (infoTeam.hq != null ? "Set" : "Not set"));
+                p.sendMessage("§6Members (" + infoTeam.members.size() + "): §f" + String.join(", ", infoTeam.members));
                 break;
                 
             case "leave":
-                if (currentTeam == null) { p.sendMessage("§6Tu n'as pas §dde team."); return; }
+                if (currentTeam == null) { p.sendMessage(getMsg(p, "team_not_in")); return; }
                 TeamData lTeam = teams.get(currentTeam);
                 if (lTeam.creator.equals(uuid)) {
                     if (lTeam.members.size() > 1) {
-                        p.sendMessage("§6Tu ne peux pas dissoudre ta team : §fil reste des membres.");
+                        p.sendMessage("§6You cannot disband your team while members remain.");
                         return;
                     }
                     teams.remove(currentTeam);
                     playerTeam.remove(uuid);
                     saveData();
                     updatePlayerDisplayNameAndTab(p);
-                    p.sendMessage("§6Tu as dissous §fta team.");
+                    p.sendMessage("§6You dissolved your team.");
                 } else {
                     lTeam.members.remove(p.getName());
                     playerTeam.remove(uuid);
                     saveData();
                     updatePlayerDisplayNameAndTab(p);
-                    p.sendMessage("§6Tu as quitté §fta team.");
+                    p.sendMessage("§6You left your team.");
                 }
                 break;
 
             case "kick":
-                if (currentTeam == null) { p.sendMessage("§6Tu n'as pas §dde team."); return; }
+                if (currentTeam == null) { p.sendMessage(getMsg(p, "team_not_in")); return; }
                 TeamData kTeam = teams.get(currentTeam);
                 if (!kTeam.creator.equals(uuid)) {
-                    p.sendMessage("§6Seul le créateur §fpeut expulser des membres.");
+                    p.sendMessage("§6Only the creator can kick members.");
                     return;
                 }
                 if (args.length < 2) {
-                    p.sendMessage("§6Usage: §f/team kick <joueur>");
+                    p.sendMessage("§6Usage: §f/team kick <player>");
                     return;
                 }
                 String targetName = args[1];
                 if (!kTeam.members.contains(targetName)) {
-                    p.sendMessage("§6Ce joueur n'est pas §fdans ta team.");
+                    p.sendMessage("§6This player is not in your team.");
                     return;
                 }
                 kTeam.members.remove(targetName);
@@ -684,10 +856,10 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                 if (targetPlayer != null) {
                     playerTeam.remove(targetPlayer.getUniqueId());
                     updatePlayerDisplayNameAndTab(targetPlayer);
-                    targetPlayer.sendMessage("§6Tu as été expulsé §fde la team.");
+                    targetPlayer.sendMessage("§6You have been kicked from the team.");
                 }
                 saveData();
-                p.sendMessage("§6Le joueur §f" + targetName + " §6a été expulsé.");
+                p.sendMessage(getMsg(p, "team_kick", targetName));
                 break;
         }
     }
@@ -703,11 +875,10 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         for (Player p : Bukkit.getOnlinePlayers()) {
             UUID uuid = p.getUniqueId();
             
-            // Si le joueur est protégé mais qu'il quitte la région spawn, il perd sa protection
             if (spawnProtected.getOrDefault(uuid, false)) {
                 if (!isInSpawnRegion(p)) {
                     spawnProtected.put(uuid, false);
-                    p.sendMessage("§6Tu as quitté la zone du spawn, tu as perdu ta §cprotection §6!");
+                    p.sendMessage("§6You left the spawn zone and lost your §cprotection§6!");
                 }
             }
 
@@ -728,7 +899,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
             List<String> lines = new ArrayList<>();
             lines.add("§m---------------------");
             
-            String tName = playerTeam.getOrDefault(uuid, "Aucune");
+            String tName = playerTeam.getOrDefault(uuid, "None");
             if(tName.length() > 10) tName = tName.substring(0, 10) + "..";
             lines.add("§6Team: §f" + tName);
             
@@ -789,12 +960,14 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
     class MarketItem {
         String id;
         String seller;
+        UUID sellerUuid;
         ItemStack item;
         double price;
 
-        public MarketItem(String id, String seller, ItemStack item, double price) {
+        public MarketItem(String id, String seller, UUID sellerUuid, ItemStack item, double price) {
             this.id = id;
             this.seller = seller;
+            this.sellerUuid = sellerUuid;
             this.item = item;
             this.price = price;
         }
