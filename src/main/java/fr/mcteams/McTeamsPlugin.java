@@ -6,7 +6,6 @@ import com.sk89q.worldguard.protection.regions.ProtectedRegion;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
-import org.bukkit.Sound;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -48,8 +47,14 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         }
 
         getServer().getPluginManager().registerEvents(this, this);
+        
+        // Initialisation des scoreboards pour les joueurs déjà connectés (si reload)
+        for (Player p : Bukkit.getOnlinePlayers()) {
+            setupPlayerScoreboard(p);
+        }
+
         Bukkit.getScheduler().runTaskTimer(this, this::updateScoreboards, 0L, 20L);
-        getLogger().info("McTeams est activé avec les systèmes de CombatTag et Spawn !");
+        getLogger().info("McTeams est activé avec succès !");
     }
 
     @EventHandler
@@ -66,7 +71,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
     public void onQuit(PlayerQuitEvent e) {
         Player p = e.getPlayer();
         if (isInCombat(p)) {
-            p.setHealth(0.0); // Tue le joueur si déconnexion en combat
+            p.setHealth(0.0);
             Bukkit.broadcastMessage("§6[Combat] §f" + p.getName() + " §6s'est déconnecté en combat et a été tué !");
         }
         combatTag.remove(p.getUniqueId());
@@ -77,7 +82,6 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         Player p = e.getEntity();
         combatTag.remove(p.getUniqueId());
         
-        // Téléportation immédiate au spawn après la mort
         Bukkit.getScheduler().runTaskLater(this, () -> {
             if (spawnLocation != null) {
                 p.spigot().respawn();
@@ -93,14 +97,12 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
             Player victim = (Player) e.getEntity();
             Player attacker = (Player) e.getDamager();
 
-            // Empêcher les dégâts si l'un d'eux est protégé au spawn
             if (isInSpawnRegion(victim) || isInSpawnRegion(attacker)) {
                 e.setCancelled(true);
                 attacker.sendMessage("§6Impossible de frapper : cible ou attaquant sous protection du §fspawn §6!");
                 return;
             }
 
-            // Application du Combat Tag (45 secondes)
             long expireTime = System.currentTimeMillis() + 45000L;
             combatTag.put(victim.getUniqueId(), expireTime);
             combatTag.put(attacker.getUniqueId(), expireTime);
@@ -122,7 +124,12 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         Player p = e.getPlayer();
         String rank = playerRanks.getOrDefault(p.getUniqueId(), "default");
         String prefix = getRankPrefix(rank);
-        e.setFormat(prefix + " §f" + p.getName() + " §7> §f" + e.getMessage());
+        
+        // Gestion du tag de team dans le chat
+        String clan = playerTeam.get(p.getUniqueId());
+        String clanTag = (clan != null) ? "§6[" + clan + "] " : "";
+        
+        e.setFormat(clanTag + prefix + " §f" + p.getName() + " §7> §f" + e.getMessage());
     }
 
     private String getRankPrefix(String rank) {
@@ -135,17 +142,19 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
     }
 
     private void setupPlayerScoreboard(Player target) {
+        Scoreboard board = target.getScoreboard();
+        if (board == Bukkit.getScoreboardManager().getMainScoreboard()) {
+            board = Bukkit.getScoreboardManager().getNewScoreboard();
+            target.setScoreboard(board);
+        }
+        createRankTeamInBoard(board, "01admin", "§c[Admin] ");
+        createRankTeamInBoard(board, "02mod", "§b[Mod] ");
+        createRankTeamInBoard(board, "03vip", "§6[VIP] ");
+        createRankTeamInBoard(board, "04default", "§f[Player] ");
+
+        // Appliquer à tous les joueurs en ligne pour le Tab
         for (Player p : Bukkit.getOnlinePlayers()) {
-            Scoreboard board = p.getScoreboard();
-            if (board == Bukkit.getScoreboardManager().getMainScoreboard()) {
-                board = Bukkit.getScoreboardManager().getNewScoreboard();
-                p.setScoreboard(board);
-            }
-            createRankTeamInBoard(board, "01admin", "§c[Admin] ");
-            createRankTeamInBoard(board, "02mod", "§b[Mod] ");
-            createRankTeamInBoard(board, "03vip", "§6[VIP] ");
-            createRankTeamInBoard(board, "04default", "§f[Player] ");
-            assignPlayerToRankTeam(board, target);
+            assignPlayerToRankTeam(p.getScoreboard(), target);
         }
     }
 
@@ -191,7 +200,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
 
             case "spawn":
                 if (spawnLocation == null) {
-                    p.sendMessage("§6Le spawn n'a pas §fdéfini par un admin.");
+                    p.sendMessage("§6Le spawn n'a pas été défini par un admin.");
                     return true;
                 }
                 if (isInCombat(p)) {
@@ -201,7 +210,6 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                 p.sendMessage("§6Téléportation au spawn §fdans 15 secondes... Ne bouge pas !");
                 Location locBefore = p.getLocation();
                 
-                // Task de 15 secondes pour /spawn
                 new BukkitRunnable() {
                     int countdown = 15;
                     @Override
@@ -250,7 +258,9 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                     return true;
                 }
                 playerRanks.put(target.getUniqueId(), newRank);
-                setupPlayerScoreboard(target);
+                for (Player online : Bukkit.getOnlinePlayers()) {
+                    assignPlayerToRankTeam(online.getScoreboard(), target);
+                }
                 p.sendMessage("§6Grade de §f" + target.getName() + " §6défini sur : §f" + newRank);
                 target.sendMessage("§6Ton grade a été mis à jour : §f" + newRank);
                 break;
@@ -459,7 +469,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                 Player targetPlayer = Bukkit.getPlayer(targetName);
                 if (targetPlayer != null) {
                     playerTeam.remove(targetPlayer.getUniqueId());
-                    targetPlayer.sendMessage("§6Tu été expulsé §fde la team.");
+                    targetPlayer.sendMessage("§6Tu as été expulsé §fde la team.");
                 }
                 p.sendMessage("§6Le joueur §f" + targetName + " §6a été expulsé.");
                 break;
@@ -475,10 +485,20 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
 
     private void updateScoreboards() {
         for (Player p : Bukkit.getOnlinePlayers()) {
-            Scoreboard board = Bukkit.getScoreboardManager().getNewScoreboard();
-            Objective obj = board.registerNewObjective("mcteams", "dummy");
-            obj.setDisplaySlot(DisplaySlot.SIDEBAR);
+            Scoreboard board = p.getScoreboard();
+            Objective obj = board.getObjective("mcteams");
+            if (obj == null) {
+                obj = board.registerNewObjective("mcteams", "dummy");
+                obj.setDisplaySlot(DisplaySlot.SIDEBAR);
+            }
             obj.setDisplayName("§6SoupTeams §f[Map 1]");
+
+            // Supprimer les anciennes entrées pour éviter les doublons instantanés
+            for (String entry : board.getEntries()) {
+                if (obj.getScore(entry).getScore() > 0 && !isRankTeamEntry(board, entry)) {
+                    board.resetScores(entry);
+                }
+            }
 
             List<String> lines = new ArrayList<>();
             lines.add("§m---------------------");
@@ -496,20 +516,29 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
 
             int score = lines.size();
             for (String line : lines) {
-                obj.getScore(line + String.join("", Collections.nCopies(score, "§r"))).setScore(score);
+                String uniqueLine = line + String.join("", Collections.nCopies(score, "§r"));
+                obj.getScore(uniqueLine).setScore(score);
                 score--;
             }
-            p.setScoreboard(board);
         }
     }
 
-    private boolean isInSpawnRegion(Player p) {
-        ApplicableRegionSet set = WGBukkit.getRegionManager(p.getWorld()).getApplicableRegions(p.getLocation());
-        for (ProtectedRegion region : set) {
-            if (region.getId().equalsIgnoreCase("spawn")) {
-                return true;
-            }
+    private boolean isRankTeamEntry(Scoreboard board, String entry) {
+        for (Team t : board.getTeams()) {
+            if (t.hasEntry(entry)) return true;
         }
+        return false;
+    }
+
+    private boolean isInSpawnRegion(Player p) {
+        try {
+            ApplicableRegionSet set = WGBukkit.getRegionManager(p.getWorld()).getApplicableRegions(p.getLocation());
+            for (ProtectedRegion region : set) {
+                if (region.getId().equalsIgnoreCase("spawn")) {
+                    return true;
+                }
+            }
+        } catch (Exception ignored) {}
         return false;
     }
 
