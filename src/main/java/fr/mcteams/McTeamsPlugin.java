@@ -544,7 +544,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
 
         switch (cmdName) {
             case "gm":
-                if (!p.isOP()) {
+                if (!p.isOp()) {
                     p.sendMessage("§cYou do not have permission.");
                     return true;
                 }
