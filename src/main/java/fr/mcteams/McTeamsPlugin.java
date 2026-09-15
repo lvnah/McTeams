@@ -4,6 +4,7 @@ import com.sk89q.worldguard.bukkit.WGBukkit;
 import com.sk89q.worldguard.protection.ApplicableRegionSet;
 import com.sk89q.worldguard.protection.regions.ProtectedRegion;
 import org.bukkit.Bukkit;
+import org.bukkit.ChatColor;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.Material;
@@ -16,6 +17,7 @@ import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
+import org.bukkit.event.block.Action;
 import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
@@ -24,9 +26,11 @@ import org.bukkit.event.entity.FoodLevelChangeEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
 import org.bukkit.event.player.PlayerDropItemEvent;
+import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.scoreboard.DisplaySlot;
@@ -49,6 +53,8 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
     private final Map<UUID, Long> combatTag = new HashMap<>();
     private final Map<UUID, String> activeTeleports = new HashMap<>();
     private final Map<UUID, Boolean> spawnProtected = new HashMap<>();
+    private final Map<UUID, ItemStack[]> modInventories = new HashMap<>();
+    private final Set<UUID> modMode = new HashSet<>();
     private final List<MarketItem> market = new ArrayList<>();
     private final DecimalFormat df = new DecimalFormat("#.##");
 
@@ -381,6 +387,8 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
     public void onQuit(PlayerQuitEvent e) {
         e.setQuitMessage(null);
         Player p = e.getPlayer();
+        modMode.remove(p.getUniqueId());
+        modInventories.remove(p.getUniqueId());
         if (isInCombat(p)) {
             p.setHealth(0.0);
             Bukkit.broadcastMessage(getMsg(p, "combat_death", p.getName()));
@@ -393,6 +401,8 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
     @EventHandler
     public void onDeath(PlayerDeathEvent e) {
         Player p = e.getEntity();
+        modMode.remove(p.getUniqueId());
+        modInventories.remove(p.getUniqueId());
         combatTag.remove(p.getUniqueId());
         activeTeleports.remove(p.getUniqueId());
         spawnProtected.put(p.getUniqueId(), true);
@@ -471,6 +481,34 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         if (p.getGameMode() == GameMode.CREATIVE && !p.isOp()) {
             e.setCancelled(true);
             p.sendMessage("§cYou cannot drop items while in creative mode.");
+        }
+    }
+
+    @EventHandler
+    public void onPlayerInteract(PlayerInteractEvent e) {
+        Player p = e.getPlayer();
+        if (!modMode.contains(p.getUniqueId())) return;
+        
+        ItemStack item = e.getItem();
+        if (item == null || !item.hasItemMeta() || !item.getItemMeta().hasDisplayName()) return;
+
+        if (e.getAction() == Action.RIGHT_CLICK_AIR || e.getAction() == Action.RIGHT_CLICK_BLOCK) {
+            String name = ChatColor.stripColor(item.getItemMeta().getDisplayName());
+            if (name.contains("Exit Mod Mode")) {
+                e.setCancelled(true);
+                disableModMode(p);
+            } else if (name.contains("Random Teleport")) {
+                e.setCancelled(true);
+                List<Player> players = new ArrayList<>(Bukkit.getOnlinePlayers());
+                players.remove(p);
+                if (!players.isEmpty()) {
+                    Player target = players.get(new Random().nextInt(players.size()));
+                    p.teleport(target.getLocation());
+                    p.sendMessage("§6Teleported to §f" + target.getName() + "§6.");
+                } else {
+                    p.sendMessage("§cNo other players online to teleport to.");
+                }
+            }
         }
     }
 
@@ -566,6 +604,41 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         }
     }
 
+    private void enableModMode(Player p) {
+        modMode.add(p.getUniqueId());
+        modInventories.put(p.getUniqueId(), p.getInventory().getContents());
+        p.getInventory().clear();
+        p.setGameMode(GameMode.CREATIVE);
+
+        // Ajout des items de modération
+        p.getInventory().setItem(0, createModItem(Material.COMPASS, "§6» §eRandom Teleport §6«"));
+        p.getInventory().setItem(1, createModItem(Material.BOOK, "§6» §ePlayer Inspector §6«"));
+        p.getInventory().setItem(2, createModItem(Material.ENCHANTED_BOOK, "§6» §eVanish (Simulated) §6«"));
+        p.getInventory().setItem(7, createModItem(Material.REDSTONE_LAMP_ON, "§6» §eFreeze Player §6«"));
+        p.getInventory().setItem(8, createModItem(Material.REDSTONE_BLOCK, "§c» §4Exit Mod Mode §c«"));
+        
+        p.sendMessage("§6Mod mode enabled. Tools loaded.");
+    }
+
+    private void disableModMode(Player p) {
+        modMode.remove(p.getUniqueId());
+        p.getInventory().clear();
+        if (modInventories.containsKey(p.getUniqueId())) {
+            p.getInventory().setContents(modInventories.get(p.getUniqueId()));
+            modInventories.remove(p.getUniqueId());
+        }
+        p.setGameMode(GameMode.SURVIVAL);
+        p.sendMessage("§6Mod mode disabled. Inventory restored.");
+    }
+
+    private ItemStack createModItem(Material mat, String name) {
+        ItemStack item = new ItemStack(mat, 1);
+        ItemMeta meta = item.getItemMeta();
+        meta.setDisplayName(name);
+        item.setItemMeta(meta);
+        return item;
+    }
+
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (!(sender instanceof Player)) return true;
@@ -593,12 +666,10 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                     p.sendMessage("§cYou do not have permission to use /mod.");
                     return true;
                 }
-                if (p.getGameMode() == GameMode.CREATIVE) {
-                    p.setGameMode(GameMode.SURVIVAL);
-                    p.sendMessage("§6Mod mode disabled (Survival).");
+                if (modMode.contains(uuid)) {
+                    disableModMode(p);
                 } else {
-                    p.setGameMode(GameMode.CREATIVE);
-                    p.sendMessage("§6Mod mode enabled (Creative).");
+                    enableModMode(p);
                 }
                 break;
 
@@ -1092,16 +1163,20 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
             }
 
             Map<String, Integer> currentLines = new LinkedHashMap<>();
-            currentLines.put("§m---------------------", 6);
+            currentLines.put("§m---------------------", 7);
             
             String tName = playerTeam.getOrDefault(uuid, "None");
             if(tName.length() > 10) tName = tName.substring(0, 10) + "..";
-            currentLines.put("§6Team: §f" + tName, 5);
+            currentLines.put("§6Team: §f" + tName, 6);
             
-            currentLines.put("§6Balance: §f" + df.format(balances.getOrDefault(uuid, 0.0)), 4);
+            currentLines.put("§6Balance: §f" + df.format(balances.getOrDefault(uuid, 0.0)), 5);
             
             boolean isProtected = spawnProtected.getOrDefault(uuid, false);
-            currentLines.put("§6Spawn protection: " + (isProtected ? "§aEnable" : "§cDisable"), 3);
+            currentLines.put("§6Spawn protection: " + (isProtected ? "§aEnable" : "§cDisable"), 4);
+
+            if (modMode.contains(uuid)) {
+                currentLines.put("§6Mod: §aEnable", 3);
+            }
 
             if (activeTeleports.containsKey(uuid)) {
                 currentLines.put("§6Teleportation: §f" + activeTeleports.get(uuid), 2);
