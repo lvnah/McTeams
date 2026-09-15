@@ -30,3 +30,7 @@ commands:
     description: Changer la langue du plugin
   gm:
     description: Changer son mode de jeu (0 ou 1)
+  mod:
+    description: Activer ou désactiver le mode modérateur/créatif
+  clearchat:
+    description: Effacer le chat pour tous les joueurs
