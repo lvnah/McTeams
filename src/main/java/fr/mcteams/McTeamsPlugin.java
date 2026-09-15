@@ -33,6 +33,7 @@ import org.bukkit.scoreboard.Objective;
 import org.bukkit.scoreboard.Scoreboard;
 import org.bukkit.scoreboard.Team;
 
+import java.text.DecimalFormat;
 import java.util.*;
 
 public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listener {
@@ -48,6 +49,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
     private final Map<UUID, String> activeTeleports = new HashMap<>();
     private final Map<UUID, Boolean> spawnProtected = new HashMap<>();
     private final List<MarketItem> market = new ArrayList<>();
+    private final DecimalFormat df = new DecimalFormat("#.##");
 
     @Override
     public void onEnable() {
@@ -67,6 +69,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
             updatePlayerDisplayNameAndTab(p);
             spawnProtected.putIfAbsent(p.getUniqueId(), true);
             playerLangs.putIfAbsent(p.getUniqueId(), "en");
+            playerRanks.putIfAbsent(p.getUniqueId(), "default");
         }
 
         Bukkit.getScheduler().runTaskTimer(this, this::updateScoreboards, 0L, 20L);
@@ -102,13 +105,15 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
             map.put("spawn_protected_msg", "§6Téléportation effectuée au spawn avec §aprotection §6!");
             map.put("rank_updated", "§6Grade de {0} défini sur : {1}");
             map.put("rank_target_update", "§6Ton grade a été mis à jour : {0}");
-            map.put("go_limit", "§6Tu as déjà atteint la limite de 3 /go !");
+            map.put("go_limit_default", "§6Tu as atteint la limite de ton grade (1 /go). §cUpgrade ton rank pour en avoir plus !");
+            map.put("go_limit_vip", "§6Tu as atteint la limite de ton grade VIP (2 /go). §cUpgrade ton rank pour en avoir plus !");
+            map.put("go_limit_max", "§6Tu as déjà atteint la limite maximale de 3 /go !");
             map.put("go_set", "§6Go '{0}' défini et sauvegardé !");
             map.put("go_not_found", "§6Ce go n'existe pas.");
             map.put("go_deleted", "§6Le go '{0}' a été supprimé.");
             map.put("go_list_empty", "§6Tu n'as aucun /go enregistré.");
-            map.put("go_list", "§6Tes /go ({0}/3) : §f{1}");
-            map.put("deposit_success", "§6Tu as déposé §f{0} lingots d'or. §6Nouveau solde: §f{1}");
+            map.put("go_list", "§6Tes /go : §f{1}");
+            map.put("deposit_success", "§6Tu as déposé §f{0} lingots §6(multiplicateur appliqué). §6Nouveau solde: §f{1}");
             map.put("deposit_empty", "§6Tu n'as pas d'or dans ton inventaire !");
             map.put("balance_msg", "§6Ton solde est de : §f{0} Or");
             map.put("sell_usage", "§6Usage: §f/sell <id> <quantité> <prix>");
@@ -143,13 +148,15 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
             map.put("spawn_protected_msg", "§6¡Teletransportado al spawn con §aprotección §6!");
             map.put("rank_updated", "§6Rango de {0} establecido en: {1}");
             map.put("rank_target_update", "§6Tu rango ha sido actualizado: {0}");
-            map.put("go_limit", "§6¡Ya has alcanzado el límite de 3 /go!");
+            map.put("go_limit_default", "§6Has alcanzado el límite de tu rango (1 /go). §c¡Mejora tu rango para tener más!");
+            map.put("go_limit_vip", "§6Has alcanzado el límite de tu rango VIP (2 /go). §c¡Mejora tu rango para tener más!");
+            map.put("go_limit_max", "§6¡Has alcanzado el límite máximo de 3 /go!");
             map.put("go_set", "§6¡Go '{0}' definido y guardado!");
             map.put("go_not_found", "§6Este go no existe.");
             map.put("go_deleted", "§6El go '{0}' ha sido eliminado.");
             map.put("go_list_empty", "§6No tienes ningún /go guardado.");
-            map.put("go_list", "§6Tus /go ({0}/3) : §f{1}");
-            map.put("deposit_success", "§6Has depositado §f{0} lingotes de oro. §6Nuevo saldo: §f{1}");
+            map.put("go_list", "§6Tus /go : §f{1}");
+            map.put("deposit_success", "§6Has depositado §f{0} lingotes §6(multiplicador aplicado). Nuevo saldo: §f{1}");
             map.put("deposit_empty", "§6¡No tienes oro en tu inventario!");
             map.put("balance_msg", "§6Tu saldo es de: §f{0} Oro");
             map.put("sell_usage", "§6Uso: §f/sell <id> <cantidad> <precio>");
@@ -184,13 +191,15 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
             map.put("spawn_protected_msg", "§6Teleported to spawn with §aprotection§6!");
             map.put("rank_updated", "§6Rank of {0} set to: {1}");
             map.put("rank_target_update", "§6Your rank has been updated: {0}");
-            map.put("go_limit", "§6You have reached the limit of 3 /go!");
+            map.put("go_limit_default", "§6You have reached your rank limit (1 /go). §cUpgrade your rank to get more!");
+            map.put("go_limit_vip", "§6You have reached your VIP rank limit (2 /go). §cUpgrade your rank to get more!");
+            map.put("go_limit_max", "§6You have already reached the maximum limit of 3 /go!");
             map.put("go_set", "§6Go '{0}' defined and saved!");
             map.put("go_not_found", "§6This go does not exist.");
             map.put("go_deleted", "§6The go '{0}' has been deleted.");
             map.put("go_list_empty", "§6You have no saved /go.");
-            map.put("go_list", "§6Your /go ({0}/3) : §f{1}");
-            map.put("deposit_success", "§6You deposited §f{0} gold ingots. §6New balance: §f{1}");
+            map.put("go_list", "§6Your /go : §f{1}");
+            map.put("deposit_success", "§6You deposited §f{0} ingots §6(multiplier applied). New balance: §f{1}");
             map.put("deposit_empty", "§6You don't have any gold in your inventory!");
             map.put("balance_msg", "§6Your balance is: §f{0} Gold");
             map.put("sell_usage", "§6Usage: §f/sell <id> <quantity> <price>");
@@ -344,7 +353,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
 
     @EventHandler
     public void onJoin(PlayerJoinEvent e) {
-        e.setJoinMessage(null); // Supprime le message de connexion de base
+        e.setJoinMessage(null);
         Player p = e.getPlayer();
         playerRanks.putIfAbsent(p.getUniqueId(), "default");
         playerLangs.putIfAbsent(p.getUniqueId(), "en");
@@ -352,12 +361,10 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         setupPlayerScoreboard(p);
         updatePlayerDisplayNameAndTab(p);
 
-        // Clear chat (200 lignes vides)
         for (int i = 0; i < 200; i++) {
             p.sendMessage("");
         }
 
-        // Affichage du message de bienvenue personnalisé
         p.sendMessage("§f§m-----------------------------------");
         p.sendMessage("§fWelcome to Soup§6Teams §fMap 1");
         p.sendMessage("");
@@ -371,7 +378,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
 
     @EventHandler
     public void onQuit(PlayerQuitEvent e) {
-        e.setQuitMessage(null); // Supprime le message de déconnexion de base
+        e.setQuitMessage(null);
         Player p = e.getPlayer();
         if (isInCombat(p)) {
             p.setHealth(0.0);
@@ -610,16 +617,14 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                     return true;
                 }
                 if (p.isOp()) {
-                    startTeleportation(p, spawnLocation, "Spawn", 0, true);
+                    startTeleportation(p, spawnLocation, "Spawn", 0, true, 0.0);
                 } else {
                     double currentBal = balances.getOrDefault(uuid, 0.0);
                     if (currentBal < 3.0) {
                         p.sendMessage(getMsg(p, "spawn_no_gold"));
                         return true;
                     }
-                    balances.put(uuid, currentBal - 3.0);
-                    saveData();
-                    startTeleportation(p, spawnLocation, "Spawn", 15, true);
+                    startTeleportation(p, spawnLocation, "Spawn", 15, true, 3.0);
                 }
                 break;
 
@@ -685,10 +690,26 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                         p.sendMessage(getMsg(p, "too_close_spawn"));
                         return true;
                     }
-                    if (homes.size() >= 3) {
-                        p.sendMessage(getMsg(p, "go_limit"));
+
+                    String rank = playerRanks.getOrDefault(uuid, "default").toLowerCase();
+                    int maxHomes = 1;
+                    if (rank.equals("vip")) {
+                        maxHomes = 2;
+                    } else if (rank.equals("elite") || rank.equals("mod") || rank.equals("helper") || rank.equals("owner") || p.isOp()) {
+                        maxHomes = 3;
+                    }
+
+                    if (homes.size() >= maxHomes) {
+                        if (rank.equals("default")) {
+                            p.sendMessage(getMsg(p, "go_limit_default"));
+                        } else if (rank.equals("vip")) {
+                            p.sendMessage(getMsg(p, "go_limit_vip"));
+                        } else {
+                            p.sendMessage(getMsg(p, "go_limit_max"));
+                        }
                         return true;
                     }
+
                     homes.put(args[1].toLowerCase(), p.getLocation());
                     saveData();
                     p.sendMessage(getMsg(p, "go_set", args[1]));
@@ -696,7 +717,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                     String homeName = args[0].toLowerCase();
                     if (homes.containsKey(homeName)) {
                         int delay = isPlayerNearby(p, 30) ? 5 : 0;
-                        startTeleportation(p, homes.get(homeName), "Go: " + homeName, delay, false);
+                        startTeleportation(p, homes.get(homeName), "Go: " + homeName, delay, false, 0.0);
                     } else {
                         p.sendMessage(getMsg(p, "go_not_found"));
                     }
@@ -721,9 +742,19 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                     }
                 }
                 if (goldCount > 0) {
-                    balances.put(uuid, balances.getOrDefault(uuid, 0.0) + goldCount);
+                    String rank = playerRanks.getOrDefault(uuid, "default").toLowerCase();
+                    double multiplier = 1.0;
+                    if (rank.equals("vip")) {
+                        multiplier = 1.2;
+                    } else if (rank.equals("elite")) {
+                        multiplier = 1.5;
+                    }
+
+                    double addedGold = goldCount * multiplier;
+                    double currentBalance = balances.getOrDefault(uuid, 0.0);
+                    balances.put(uuid, currentBalance + addedGold);
                     saveData();
-                    p.sendMessage(getMsg(p, "deposit_success", goldCount, balances.get(uuid)));
+                    p.sendMessage(getMsg(p, "deposit_success", goldCount, df.format(balances.get(uuid))));
                 } else {
                     p.sendMessage(getMsg(p, "deposit_empty"));
                 }
@@ -731,7 +762,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
 
             case "balance":
             case "bal":
-                p.sendMessage(getMsg(p, "balance_msg", balances.getOrDefault(uuid, 0.0)));
+                p.sendMessage(getMsg(p, "balance_msg", df.format(balances.getOrDefault(uuid, 0.0))));
                 break;
 
             case "sell":
@@ -817,8 +848,13 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         return true;
     }
 
-    private void startTeleportation(Player p, Location targetLoc, String name, int delaySeconds, boolean giveSpawnProtection) {
+    private void startTeleportation(Player p, Location targetLoc, String name, int delaySeconds, boolean giveSpawnProtection, double cost) {
         if (delaySeconds <= 0) {
+            if (cost > 0) {
+                double currentBal = balances.getOrDefault(p.getUniqueId(), 0.0);
+                balances.put(p.getUniqueId(), currentBal - cost);
+                saveData();
+            }
             p.teleport(targetLoc);
             if (giveSpawnProtection) {
                 spawnProtected.put(p.getUniqueId(), true);
@@ -854,6 +890,17 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                     return;
                 }
                 if (countdown <= 0) {
+                    if (cost > 0) {
+                        double currentBal = balances.getOrDefault(p.getUniqueId(), 0.0);
+                        if (currentBal < cost) {
+                            p.sendMessage(getMsg(p, "spawn_no_gold"));
+                            activeTeleports.remove(p.getUniqueId());
+                            cancel();
+                            return;
+                        }
+                        balances.put(p.getUniqueId(), currentBal - cost);
+                        saveData();
+                    }
                     p.teleport(targetLoc);
                     if (giveSpawnProtection) {
                         spawnProtected.put(p.getUniqueId(), true);
@@ -916,7 +963,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                     p.sendMessage(getMsg(p, "hq_none"));
                 } else {
                     int delay = isPlayerNearby(p, 30) ? 5 : 0;
-                    startTeleportation(p, hq, "Team HQ", delay, false);
+                    startTeleportation(p, hq, "Team HQ", delay, false, 0.0);
                 }
                 break;
                 
@@ -1014,7 +1061,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
             if(tName.length() > 10) tName = tName.substring(0, 10) + "..";
             currentLines.put("§6Team: §f" + tName, 5);
             
-            currentLines.put("§6Balance: §f" + balances.getOrDefault(uuid, 0.0), 4);
+            currentLines.put("§6Balance: §f" + df.format(balances.getOrDefault(uuid, 0.0)), 4);
             
             boolean isProtected = spawnProtected.getOrDefault(uuid, false);
             currentLines.put("§6Spawn protection: " + (isProtected ? "§aEnable" : "§cDisable"), 3);
