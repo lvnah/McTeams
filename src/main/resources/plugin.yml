@@ -28,3 +28,5 @@ commands:
     description: Set rank du joueur
   lang:
     description: Changer la langue du plugin
+  gm:
+    description: Changer son mode de jeu (0 ou 1)
