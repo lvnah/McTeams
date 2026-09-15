@@ -18,6 +18,8 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
+import org.bukkit.event.entity.EntityDamageEvent;
+import org.bukkit.event.entity.FoodLevelChangeEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
@@ -52,7 +54,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         saveConfig();
         loadData();
 
-        String[] cmds = {"setspawn", "spawn", "go", "team", "deposit", "balance", "sell", "buy", "buyview", "setrank", "lang"};
+        String[] cmds = {"setspawn", "spawn", "go", "team", "deposit", "balance", "bal", "sell", "buy", "buyview", "setrank", "lang"};
         for (String cmd : cmds) {
             getCommand(cmd).setExecutor(this);
         }
@@ -101,18 +103,20 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
             map.put("go_limit", "§6Tu as déjà atteint la limite de 3 /go !");
             map.put("go_set", "§6Go '{0}' défini et sauvegardé !");
             map.put("go_not_found", "§6Ce go n'existe pas.");
+            map.put("go_deleted", "§6Le go '{0}' a été supprimé.");
             map.put("go_list_empty", "§6Tu n'as aucun /go enregistré.");
             map.put("go_list", "§6Tes /go ({0}/3) : §f{1}");
             map.put("deposit_success", "§6Tu as déposé §f{0} lingots d'or. §6Nouveau solde: §f{1}");
             map.put("deposit_empty", "§6Tu n'as pas d'or dans ton inventaire !");
             map.put("balance_msg", "§6Ton solde est de : §f{0} Or");
-            map.put("sell_usage", "§6Usage: §f/sell <quantité> <prix>");
-            map.put("sell_not_enough", "§6Tu n'as pas assez de cet item en main !");
-            map.put("sell_success", "§6Item mis en vente sous l'ID §f{0} §6pour §f{1} Or §6!");
-            map.put("buy_usage", "§6Usage: §f/buy <id>");
-            map.put("buy_not_found", "§6Cet ID n'existe pas.");
+            map.put("sell_usage", "§6Usage: §f/sell <id> <quantité> <prix>");
+            map.put("sell_not_enough", "§6Tu n'as pas assez de cet item dans ton inventaire !");
+            map.put("sell_success", "§6Item mis en vente sous l'ID §f{0} §6pour §f{1} Or l'unité §6!");
+            map.put("buy_usage", "§6Usage: §f/buy <id> <quantité>");
+            map.put("buy_not_found", "§6Cet ID n'existe pas sur le marché.");
             map.put("buy_success", "§6Achat réussi !");
             map.put("buy_no_money", "§6Tu n'as pas assez d'or !");
+            map.put("too_close_spawn", "§6Impossible de placer un point à moins de 200 blocs du spawn !");
             map.put("team_already", "§6Tu es déjà dans une team.");
             map.put("team_created", "§6Team {0} créée et sauvegardée !");
             map.put("hq_set", "§6HQ de la team défini et sauvegardé !");
@@ -139,18 +143,20 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
             map.put("go_limit", "§6¡Ya has alcanzado el límite de 3 /go!");
             map.put("go_set", "§6¡Go '{0}' definido y guardado!");
             map.put("go_not_found", "§6Este go no existe.");
+            map.put("go_deleted", "§6El go '{0}' ha sido eliminado.");
             map.put("go_list_empty", "§6No tienes ningún /go guardado.");
             map.put("go_list", "§6Tus /go ({0}/3) : §f{1}");
             map.put("deposit_success", "§6Has depositado §f{0} lingotes de oro. §6Nuevo saldo: §f{1}");
             map.put("deposit_empty", "§6¡No tienes oro en tu inventario!");
             map.put("balance_msg", "§6Tu saldo es de: §f{0} Oro");
-            map.put("sell_usage", "§6Uso: §f/sell <cantidad> <precio>");
-            map.put("sell_not_enough", "§6¡No tienes suficiente de este objeto en la mano!");
-            map.put("sell_success", "§6¡Objeto puesto a la venta con ID §f{0} §6por §f{1} Oro §6!");
-            map.put("buy_usage", "§6Uso: §f/buy <id>");
-            map.put("buy_not_found", "§6Este ID no existe.");
+            map.put("sell_usage", "§6Uso: §f/sell <id> <cantidad> <precio>");
+            map.put("sell_not_enough", "§6¡No tienes suficiente de este objeto en tu inventario!");
+            map.put("sell_success", "§6¡Objeto puesto a la venta con ID §f{0} §6por §f{1} Oro c/u §6!");
+            map.put("buy_usage", "§6Uso: §f/buy <id> <cantidad>");
+            map.put("buy_not_found", "§6Este ID no existe en el mercado.");
             map.put("buy_success", "§6¡Compra exitosa!");
             map.put("buy_no_money", "§6¡No tienes suficiente oro!");
+            map.put("too_close_spawn", "§6¡No puedes establecer un punto a menos de 200 bloques del spawn!");
             map.put("team_already", "§6Ya estás en un team.");
             map.put("team_created", "§6¡Team {0} creado y guardado!");
             map.put("hq_set", "§6¡HQ del team definido y guardado!");
@@ -164,7 +170,6 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
             map.put("damage_deny", "§6¡Imposible golpear: objetivo o atacante bajo protección del spawn!");
             map.put("lang_changed", "§6Idioma cambiado a: §fEspañol");
         } else {
-            // English default
             map.put("spawn_set", "§6Spawn defined and saved successfully!");
             map.put("spawn_not_set", "§6Spawn has not been set by an admin.");
             map.put("in_combat_tp", "§6Cannot teleport while in combat tag!");
@@ -178,18 +183,20 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
             map.put("go_limit", "§6You have reached the limit of 3 /go!");
             map.put("go_set", "§6Go '{0}' defined and saved!");
             map.put("go_not_found", "§6This go does not exist.");
+            map.put("go_deleted", "§6The go '{0}' has been deleted.");
             map.put("go_list_empty", "§6You have no saved /go.");
             map.put("go_list", "§6Your /go ({0}/3) : §f{1}");
             map.put("deposit_success", "§6You deposited §f{0} gold ingots. §6New balance: §f{1}");
             map.put("deposit_empty", "§6You don't have any gold in your inventory!");
             map.put("balance_msg", "§6Your balance is: §f{0} Gold");
-            map.put("sell_usage", "§6Usage: §f/sell <quantity> <price>");
-            map.put("sell_not_enough", "§6You don't have enough of this item in hand!");
-            map.put("sell_success", "§6Item listed for sale with ID §f{0} §6for §f{1} Gold§6!");
-            map.put("buy_usage", "§6Usage: §f/buy <id>");
-            map.put("buy_not_found", "§6This ID does not exist.");
+            map.put("sell_usage", "§6Usage: §f/sell <id> <quantity> <price>");
+            map.put("sell_not_enough", "§6You don't have enough of this item in your inventory!");
+            map.put("sell_success", "§6Item listed for sale with ID §f{0} §6for §f{1} Gold each§6!");
+            map.put("buy_usage", "§6Usage: §f/buy <id> <quantity>");
+            map.put("buy_not_found", "§6This ID does not exist in the market.");
             map.put("buy_success", "§6Purchase successful!");
             map.put("buy_no_money", "§6You don't have enough gold!");
+            map.put("too_close_spawn", "§6Cannot set a point within 200 blocks of spawn!");
             map.put("team_already", "§6You are already in a team.");
             map.put("team_created", "§6Team {0} created and saved!");
             map.put("hq_set", "§6Team HQ defined and saved!");
@@ -373,6 +380,27 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
     }
 
     @EventHandler
+    public void onFoodLevelChange(FoodLevelChangeEvent e) {
+        if (e.getEntity() instanceof Player) {
+            Player p = (Player) e.getEntity();
+            if (spawnProtected.getOrDefault(p.getUniqueId(), false)) {
+                e.setCancelled(true);
+                p.setFoodLevel(20);
+            }
+        }
+    }
+
+    @EventHandler
+    public void onEntityDamage(EntityDamageEvent e) {
+        if (e.getEntity() instanceof Player) {
+            Player p = (Player) e.getEntity();
+            if (spawnProtected.getOrDefault(p.getUniqueId(), false) && e.getCause() != EntityDamageEvent.DamageCause.VOID) {
+                e.setCancelled(true);
+            }
+        }
+    }
+
+    @EventHandler
     public void onBlockBreak(BlockBreakEvent e) {
         Player p = e.getPlayer();
         if (p.isOp()) return;
@@ -450,6 +478,8 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
 
         String formattedName = clanTag + colorCode + p.getName();
         p.setPlayerListName(formattedName);
+        p.setCustomName(formattedName);
+        p.setCustomNameVisible(true);
     }
 
     private void setupPlayerScoreboard(Player target) {
@@ -503,7 +533,9 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         Player p = (Player) sender;
         UUID uuid = p.getUniqueId();
 
-        switch (command.getName().toLowerCase()) {
+        String cmdName = command.getName().toLowerCase();
+
+        switch (cmdName) {
             case "lang":
                 if (args.length != 1) {
                     p.sendMessage("§6Usage: §f/lang <en|fr|es>");
@@ -573,7 +605,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                     return true;
                 }
                 if (args.length == 0) {
-                    p.sendMessage("§6Usage: §f/go set <name> | /go <name> | /go list");
+                    p.sendMessage("§6Usage: §f/go set <name> | /go <name> | /go delete <name> | /go list");
                     return true;
                 }
                 Map<String, Location> homes = playerHomes.computeIfAbsent(uuid, k -> new HashMap<>());
@@ -585,7 +617,21 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                     }
                     return true;
                 }
+                if (args[0].equalsIgnoreCase("delete") && args.length == 2) {
+                    String hName = args[1].toLowerCase();
+                    if (homes.remove(hName) != null) {
+                        saveData();
+                        p.sendMessage(getMsg(p, "go_deleted", hName));
+                    } else {
+                        p.sendMessage(getMsg(p, "go_not_found"));
+                    }
+                    return true;
+                }
                 if (args[0].equalsIgnoreCase("set") && args.length == 2) {
+                    if (spawnLocation != null && p.getLocation().distanceSquared(spawnLocation) < 40000) { // 200 blocs
+                        p.sendMessage(getMsg(p, "too_close_spawn"));
+                        return true;
+                    }
                     if (homes.size() >= 3) {
                         p.sendMessage(getMsg(p, "go_limit"));
                         return true;
@@ -631,24 +677,26 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                 break;
 
             case "balance":
+            case "bal":
                 p.sendMessage(getMsg(p, "balance_msg", balances.getOrDefault(uuid, 0.0)));
                 break;
 
             case "sell":
-                if (args.length != 2) {
+                if (args.length != 3) {
                     p.sendMessage(getMsg(p, "sell_usage"));
                     return true;
                 }
                 try {
-                    int qty = Integer.parseInt(args[0]);
-                    double price = Double.parseDouble(args[1]);
+                    String sellId = args[0];
+                    int qty = Integer.parseInt(args[1]);
+                    double price = Double.parseDouble(args[2]);
+
                     ItemStack inHand = p.getItemInHand();
                     if (inHand == null || inHand.getType() == Material.AIR || inHand.getAmount() < qty) {
                         p.sendMessage(getMsg(p, "sell_not_enough"));
                         return true;
                     }
                     
-                    // Retirer l'item de l'inventaire
                     inHand.setAmount(inHand.getAmount() - qty);
                     if (inHand.getAmount() <= 0) {
                         p.setItemInHand(null);
@@ -657,47 +705,59 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                     ItemStack toSell = inHand.clone();
                     toSell.setAmount(qty);
                     
-                    String itemId = toSell.getType().name().toLowerCase() + " (" + toSell.getTypeId() + ")";
-                    market.add(new MarketItem(itemId, p.getName(), uuid, toSell, price));
-                    p.sendMessage(getMsg(p, "sell_success", itemId, price));
+                    market.add(new MarketItem(sellId, p.getName(), uuid, toSell, price));
+                    p.sendMessage(getMsg(p, "sell_success", sellId, price));
                 } catch (NumberFormatException e) {
-                    p.sendMessage("§6Invalid amounts.");
+                    p.sendMessage("§6Invalid numbers provided.");
                 }
                 break;
                 
             case "buyview":
                 p.sendMessage("§6--- Market ---");
                 for (MarketItem item : market) {
-                    p.sendMessage("§6ID: §f" + item.id + " §6| §f" + item.item.getAmount() + "x " + item.item.getType().name().toLowerCase() + " §6| Price: §f" + item.price + " Gold §6| Seller: §f" + item.seller);
+                    p.sendMessage("§6ID: §f" + item.id + " §6| §f" + item.item.getAmount() + "x " + item.item.getType().name().toLowerCase() + " §6| Price (each): §f" + item.price + " Gold §6| Seller: §f" + item.seller);
                 }
                 break;
 
             case "buy":
-                if (args.length != 1) {
+                if (args.length != 2) {
                     p.sendMessage(getMsg(p, "buy_usage"));
                     return true;
                 }
-                MarketItem toBuy = market.stream().filter(m -> m.id.equalsIgnoreCase(args[0])).findFirst().orElse(null);
-                if (toBuy == null) {
-                    p.sendMessage(getMsg(p, "buy_not_found"));
-                    return true;
-                }
-                double buyerBalance = balances.getOrDefault(uuid, 0.0);
-                if (buyerBalance >= toBuy.price) {
-                    balances.put(uuid, buyerBalance - toBuy.price);
-                    balances.put(toBuy.sellerUuid, balances.getOrDefault(toBuy.sellerUuid, 0.0) + toBuy.price);
-                    saveData();
-                    
-                    p.getInventory().addItem(toBuy.item);
-                    market.remove(toBuy);
-                    p.sendMessage(getMsg(p, "buy_success"));
-                    
-                    Player sellerPlayer = Bukkit.getPlayer(toBuy.sellerUuid);
-                    if (sellerPlayer != null) {
-                        sellerPlayer.sendMessage("§6Your item (" + toBuy.id + ") was sold for §f" + toBuy.price + " Gold§6!");
+                try {
+                    String buyId = args[0];
+                    int buyQty = Integer.parseInt(args[1]);
+
+                    MarketItem toBuy = market.stream().filter(m -> m.id.equalsIgnoreCase(buyId)).findFirst().orElse(null);
+                    if (toBuy == null) {
+                        p.sendMessage(getMsg(p, "buy_not_found"));
+                        return true;
                     }
-                } else {
-                    p.sendMessage(getMsg(p, "buy_no_money"));
+
+                    double totalPrice = toBuy.price * buyQty;
+                    double buyerBalance = balances.getOrDefault(uuid, 0.0);
+
+                    if (buyerBalance >= totalPrice) {
+                        balances.put(uuid, buyerBalance - totalPrice);
+                        balances.put(toBuy.sellerUuid, balances.getOrDefault(toBuy.sellerUuid, 0.0) + totalPrice);
+                        saveData();
+                        
+                        ItemStack purchasedItem = toBuy.item.clone();
+                        purchasedItem.setAmount(buyQty);
+                        p.getInventory().addItem(purchasedItem);
+                        
+                        market.remove(toBuy);
+                        p.sendMessage(getMsg(p, "buy_success"));
+                        
+                        Player sellerPlayer = Bukkit.getPlayer(toBuy.sellerUuid);
+                        if (sellerPlayer != null) {
+                            sellerPlayer.sendMessage("§6Your item (" + toBuy.id + ") was sold for §f" + totalPrice + " Gold§6!");
+                        }
+                    } else {
+                        p.sendMessage(getMsg(p, "buy_no_money"));
+                    }
+                } catch (NumberFormatException e) {
+                    p.sendMessage("§6Invalid quantity.");
                 }
                 break;
         }
@@ -783,6 +843,10 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                 if (currentTeam == null) { p.sendMessage(getMsg(p, "team_not_in")); return; }
                 TeamData t = teams.get(currentTeam);
                 if (!t.creator.equals(uuid)) { p.sendMessage("§6Only the creator can do this."); return; }
+                if (spawnLocation != null && p.getLocation().distanceSquared(spawnLocation) < 40000) { // 200 blocs
+                    p.sendMessage(getMsg(p, "too_close_spawn"));
+                    return;
+                }
                 t.hq = p.getLocation();
                 saveData();
                 p.sendMessage(getMsg(p, "hq_set"));
@@ -887,47 +951,38 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
             if (obj == null) {
                 obj = board.registerNewObjective("mcteams", "dummy");
                 obj.setDisplaySlot(DisplaySlot.SIDEBAR);
+                obj.setDisplayName("§6SoupTeams §f[Map 1]");
             }
-            obj.setDisplayName("§6SoupTeams §f[Map 1]");
 
+            // Mise à jour fluide sans recréer l'objectif pour éviter le clignotement
+            Map<String, Integer> currentLines = new LinkedHashMap<>();
+            currentLines.put("§m---------------------", 5);
+            
+            String tName = playerTeam.getOrDefault(uuid, "None");
+            if(tName.length() > 10) tName = tName.substring(0, 10) + "..";
+            currentLines.put("§6Team: §f" + tName, 4);
+            
+            currentLines.put("§6Balance: §f" + balances.getOrDefault(uuid, 0.0), 3);
+            
+            boolean isProtected = spawnProtected.getOrDefault(uuid, false);
+            currentLines.put("§6Spawn protection: " + (isProtected ? "§aEnable" : "§cDisable"), 2);
+
+            if (activeTeleports.containsKey(uuid)) {
+                currentLines.put("§6TP: §f" + activeTeleports.get(uuid), 1);
+            }
+
+            // Nettoyage des anciennes lignes du board
             for (String entry : board.getEntries()) {
-                if (obj.getScore(entry).getScore() > 0 && !isRankTeamEntry(board, entry)) {
+                if (!currentLines.containsKey(entry) && obj.getScore(entry).getScore() > 0) {
                     board.resetScores(entry);
                 }
             }
 
-            List<String> lines = new ArrayList<>();
-            lines.add("§m---------------------");
-            
-            String tName = playerTeam.getOrDefault(uuid, "None");
-            if(tName.length() > 10) tName = tName.substring(0, 10) + "..";
-            lines.add("§6Team: §f" + tName);
-            
-            lines.add("§6Balance: §f" + balances.getOrDefault(uuid, 0.0));
-            
-            boolean isProtected = spawnProtected.getOrDefault(uuid, false);
-            lines.add("§6Spawn protection: " + (isProtected ? "§aEnable" : "§cDisable"));
-
-            if (activeTeleports.containsKey(uuid)) {
-                lines.add("§6TP: §f" + activeTeleports.get(uuid));
-            }
-            
-            lines.add("§f§m---------------------");
-
-            int score = lines.size();
-            for (String line : lines) {
-                String uniqueLine = line + String.join("", Collections.nCopies(score, "§r"));
-                obj.getScore(uniqueLine).setScore(score);
-                score--;
+            // Application des scores
+            for (Map.Entry<String, Integer> entry : currentLines.entrySet()) {
+                obj.getScore(entry.getKey()).setScore(entry.getValue());
             }
         }
-    }
-
-    private boolean isRankTeamEntry(Scoreboard board, String entry) {
-        for (Team t : board.getTeams()) {
-            if (t.hasEntry(entry)) return true;
-        }
-        return false;
     }
 
     private boolean isInSpawnRegion(Player p) {
