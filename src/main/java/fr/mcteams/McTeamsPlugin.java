@@ -23,6 +23,7 @@ import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.FoodLevelChangeEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
+import org.bukkit.event.player.PlayerDropItemEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.ItemStack;
@@ -57,7 +58,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         saveConfig();
         loadData();
 
-        String[] cmds = {"setspawn", "spawn", "go", "team", "deposit", "balance", "bal", "sell", "buy", "buyview", "setrank", "lang", "gm"};
+        String[] cmds = {"setspawn", "spawn", "go", "team", "deposit", "balance", "bal", "sell", "buy", "buyview", "setrank", "lang", "gm", "mod", "clearchat"};
         for (String cmd : cmds) {
             getCommand(cmd).setExecutor(this);
         }
@@ -464,6 +465,15 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         }
     }
 
+    @EventHandler
+    public void onPlayerDrop(PlayerDropItemEvent e) {
+        Player p = e.getPlayer();
+        if (p.getGameMode() == GameMode.CREATIVE && !p.isOp()) {
+            e.setCancelled(true);
+            p.sendMessage("§cYou cannot drop items while in creative mode.");
+        }
+    }
+
     private boolean isInCombat(Player p) {
         UUID uuid = p.getUniqueId();
         if (!combatTag.containsKey(uuid)) return false;
@@ -565,6 +575,33 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         String cmdName = command.getName().toLowerCase();
 
         switch (cmdName) {
+            case "clearchat":
+                String rank = playerRanks.getOrDefault(uuid, "default");
+                String color = getRankColorCode(rank);
+                String clearMsg = "§fChat clear by " + color + p.getName();
+                for (Player online : Bukkit.getOnlinePlayers()) {
+                    for (int i = 0; i < 200; i++) {
+                        online.sendMessage("");
+                    }
+                    online.sendMessage(clearMsg);
+                }
+                break;
+
+            case "mod":
+                String pRank = playerRanks.getOrDefault(uuid, "default").toLowerCase();
+                if (!p.isOp() && !pRank.equals("mod") && !pRank.equals("moderator") && !pRank.equals("owner")) {
+                    p.sendMessage("§cYou do not have permission to use /mod.");
+                    return true;
+                }
+                if (p.getGameMode() == GameMode.CREATIVE) {
+                    p.setGameMode(GameMode.SURVIVAL);
+                    p.sendMessage("§6Mod mode disabled (Survival).");
+                } else {
+                    p.setGameMode(GameMode.CREATIVE);
+                    p.sendMessage("§6Mod mode enabled (Creative).");
+                }
+                break;
+
             case "gm":
                 if (!p.isOp()) {
                     p.sendMessage("§cYou do not have permission.");
@@ -691,18 +728,18 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                         return true;
                     }
 
-                    String rank = playerRanks.getOrDefault(uuid, "default").toLowerCase();
+                    String rankCheck = playerRanks.getOrDefault(uuid, "default").toLowerCase();
                     int maxHomes = 1;
-                    if (rank.equals("vip")) {
+                    if (rankCheck.equals("vip")) {
                         maxHomes = 2;
-                    } else if (rank.equals("elite") || rank.equals("mod") || rank.equals("helper") || rank.equals("owner") || p.isOp()) {
+                    } else if (rankCheck.equals("elite") || rankCheck.equals("mod") || rankCheck.equals("moderator") || rankCheck.equals("helper") || rankCheck.equals("owner") || p.isOp()) {
                         maxHomes = 3;
                     }
 
                     if (homes.size() >= maxHomes) {
-                        if (rank.equals("default")) {
+                        if (rankCheck.equals("default")) {
                             p.sendMessage(getMsg(p, "go_limit_default"));
-                        } else if (rank.equals("vip")) {
+                        } else if (rankCheck.equals("vip")) {
                             p.sendMessage(getMsg(p, "go_limit_vip"));
                         } else {
                             p.sendMessage(getMsg(p, "go_limit_max"));
@@ -742,11 +779,11 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                     }
                 }
                 if (goldCount > 0) {
-                    String rank = playerRanks.getOrDefault(uuid, "default").toLowerCase();
+                    String rankD = playerRanks.getOrDefault(uuid, "default").toLowerCase();
                     double multiplier = 1.0;
-                    if (rank.equals("vip")) {
+                    if (rankD.equals("vip")) {
                         multiplier = 1.2;
-                    } else if (rank.equals("elite")) {
+                    } else if (rankD.equals("elite")) {
                         multiplier = 1.5;
                     }
 
