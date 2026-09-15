@@ -4,6 +4,7 @@ import com.sk89q.worldguard.bukkit.WGBukkit;
 import com.sk89q.worldguard.protection.ApplicableRegionSet;
 import com.sk89q.worldguard.protection.regions.ProtectedRegion;
 import org.bukkit.Bukkit;
+import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
@@ -54,7 +55,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         saveConfig();
         loadData();
 
-        String[] cmds = {"setspawn", "spawn", "go", "team", "deposit", "balance", "bal", "sell", "buy", "buyview", "setrank", "lang"};
+        String[] cmds = {"setspawn", "spawn", "go", "team", "deposit", "balance", "bal", "sell", "buy", "buyview", "setrank", "lang", "gm"};
         for (String cmd : cmds) {
             getCommand(cmd).setExecutor(this);
         }
@@ -92,6 +93,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         if (lang.equals("fr")) {
             map.put("spawn_set", "§6Spawn défini et sauvegardé avec succès !");
             map.put("spawn_not_set", "§6Le spawn n'a pas été défini par un admin.");
+            map.put("spawn_no_gold", "§6Le /spawn coûte §f3 Or§6. Tu n'en as pas assez, rejoins le spawn à pied en §f0 0§6 !");
             map.put("in_combat_tp", "§6Impossible de se téléporter en combat tag !");
             map.put("tp_started", "§6Téléportation au {0} dans {1} secondes... Ne bouge pas !");
             map.put("tp_cancelled_move", "§6Téléportation annulée (mouvement détecté).");
@@ -132,6 +134,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         } else if (lang.equals("es")) {
             map.put("spawn_set", "§6¡Spawn definido y guardado con éxito!");
             map.put("spawn_not_set", "§6El spawn no ha sido definido por un administrador.");
+            map.put("spawn_no_gold", "§6El /spawn cuesta §f3 de Oro§6. ¡No tienes suficiente, ve al spawn a pie en §f0 0§6!");
             map.put("in_combat_tp", "§6¡No puedes teletransportarte en combat tag!");
             map.put("tp_started", "§6Teletransportando a {0} en {1} segundos... ¡No te muevas!");
             map.put("tp_cancelled_move", "§6Teletransportación cancelada (movimiento detectado).");
@@ -172,6 +175,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         } else {
             map.put("spawn_set", "§6Spawn defined and saved successfully!");
             map.put("spawn_not_set", "§6Spawn has not been set by an admin.");
+            map.put("spawn_no_gold", "§6/spawn costs §f3 Gold§6. You don't have enough, walk to spawn at §f0 0§6!");
             map.put("in_combat_tp", "§6Cannot teleport while in combat tag!");
             map.put("tp_started", "§6Teleporting to {0} in {1} seconds... Don't move!");
             map.put("tp_cancelled_move", "§6Teleportation cancelled (movement detected).");
@@ -463,8 +467,9 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
     private String getRankColorCode(String rank) {
         switch (rank.toLowerCase()) {
             case "owner": return "§4";
-            case "admin": return "§c";
             case "mod": case "moderator": return "§b";
+            case "elite": return "§b";
+            case "helper": return "§e";
             case "vip": return "§6";
             default: return "§f";
         }
@@ -489,10 +494,11 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
             target.setScoreboard(board);
         }
         createRankTeamInBoard(board, "01owner", "§4");
-        createRankTeamInBoard(board, "02admin", "§c");
-        createRankTeamInBoard(board, "03mod", "§b");
-        createRankTeamInBoard(board, "04vip", "§6");
-        createRankTeamInBoard(board, "05default", "§f");
+        createRankTeamInBoard(board, "02mod", "§b");
+        createRankTeamInBoard(board, "03elite", "§b");
+        createRankTeamInBoard(board, "04helper", "§e");
+        createRankTeamInBoard(board, "05vip", "§6");
+        createRankTeamInBoard(board, "06default", "§f");
 
         for (Player p : Bukkit.getOnlinePlayers()) {
             assignPlayerToRankTeam(p.getScoreboard(), target);
@@ -510,11 +516,12 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
 
     private void assignPlayerToRankTeam(Scoreboard board, Player target) {
         String rank = playerRanks.getOrDefault(target.getUniqueId(), "default").toLowerCase();
-        String teamKey = "05default";
+        String teamKey = "06default";
         if (rank.equals("owner")) teamKey = "01owner";
-        else if (rank.equals("admin")) teamKey = "02admin";
-        else if (rank.equals("mod") || rank.equals("moderator")) teamKey = "03mod";
-        else if (rank.equals("vip")) teamKey = "04vip";
+        else if (rank.equals("mod") || rank.equals("moderator")) teamKey = "02mod";
+        else if (rank.equals("elite")) teamKey = "03elite";
+        else if (rank.equals("helper")) teamKey = "04helper";
+        else if (rank.equals("vip")) teamKey = "05vip";
 
         for (Team t : board.getTeams()) {
             if (t.hasEntry(target.getName())) {
@@ -536,6 +543,26 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         String cmdName = command.getName().toLowerCase();
 
         switch (cmdName) {
+            case "gm":
+                if (!p.isOP()) {
+                    p.sendMessage("§cYou do not have permission.");
+                    return true;
+                }
+                if (args.length != 1) {
+                    p.sendMessage("§6Usage: §f/gm <0|1>");
+                    return true;
+                }
+                if (args[0].equals("0")) {
+                    p.setGameMode(GameMode.SURVIVAL);
+                    p.sendMessage("§6GameMode set to §fSurvival");
+                } else if (args[0].equals("1")) {
+                    p.setGameMode(GameMode.CREATIVE);
+                    p.sendMessage("§6GameMode set to §fCreative");
+                } else {
+                    p.sendMessage("§6Usage: §f/gm <0|1>");
+                }
+                break;
+
             case "lang":
                 if (args.length != 1) {
                     p.sendMessage("§6Usage: §f/lang <en|fr|es>");
@@ -567,6 +594,13 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                     p.sendMessage(getMsg(p, "in_combat_tp"));
                     return true;
                 }
+                double currentBal = balances.getOrDefault(uuid, 0.0);
+                if (currentBal < 3.0) {
+                    p.sendMessage(getMsg(p, "spawn_no_gold"));
+                    return true;
+                }
+                balances.put(uuid, currentBal - 3.0);
+                saveData();
                 startTeleportation(p, spawnLocation, "Spawn", 15, true);
                 break;
 
@@ -576,7 +610,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                     return true;
                 }
                 if (args.length != 2) {
-                    p.sendMessage("§6Usage: §f/setrank <player> <default|vip|mod|admin|owner>");
+                    p.sendMessage("§6Usage: §f/setrank <player> <default|vip|helper|elite|mod|owner>");
                     return true;
                 }
                 Player target = Bukkit.getPlayer(args[0]);
@@ -585,8 +619,8 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                     return true;
                 }
                 String newRank = args[1].toLowerCase();
-                if (!Arrays.asList("default", "vip", "mod", "admin", "owner").contains(newRank)) {
-                    p.sendMessage("§6Valid ranks: default, vip, mod, admin, owner");
+                if (!Arrays.asList("default", "vip", "helper", "elite", "mod", "owner").contains(newRank)) {
+                    p.sendMessage("§6Valid ranks: default, vip, helper, elite, mod, owner");
                     return true;
                 }
                 playerRanks.put(target.getUniqueId(), newRank);
@@ -813,7 +847,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                     return;
                 }
                 
-                activeTeleports.put(p.getUniqueId(), name + " (" + countdown + "s)");
+                activeTeleports.put(p.getUniqueId(), countdown + "s");
                 countdown--;
             }
         }.runTaskTimer(this, 0L, 20L);
@@ -954,31 +988,30 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                 obj.setDisplayName("§6SoupTeams §f[Map 1]");
             }
 
-            // Mise à jour fluide sans recréer l'objectif pour éviter le clignotement
             Map<String, Integer> currentLines = new LinkedHashMap<>();
-            currentLines.put("§m---------------------", 5);
+            currentLines.put("§m---------------------", 6);
             
             String tName = playerTeam.getOrDefault(uuid, "None");
             if(tName.length() > 10) tName = tName.substring(0, 10) + "..";
-            currentLines.put("§6Team: §f" + tName, 4);
+            currentLines.put("§6Team: §f" + tName, 5);
             
-            currentLines.put("§6Balance: §f" + balances.getOrDefault(uuid, 0.0), 3);
+            currentLines.put("§6Balance: §f" + balances.getOrDefault(uuid, 0.0), 4);
             
             boolean isProtected = spawnProtected.getOrDefault(uuid, false);
-            currentLines.put("§6Spawn protection: " + (isProtected ? "§aEnable" : "§cDisable"), 2);
+            currentLines.put("§6Spawn protection: " + (isProtected ? "§aEnable" : "§cDisable"), 3);
 
             if (activeTeleports.containsKey(uuid)) {
-                currentLines.put("§6TP: §f" + activeTeleports.get(uuid), 1);
+                currentLines.put("§6Teleportation: §f" + activeTeleports.get(uuid), 2);
             }
+            
+            currentLines.put("§f§m---------------------", 1);
 
-            // Nettoyage des anciennes lignes du board
             for (String entry : board.getEntries()) {
                 if (!currentLines.containsKey(entry) && obj.getScore(entry).getScore() > 0) {
                     board.resetScores(entry);
                 }
             }
 
-            // Application des scores
             for (Map.Entry<String, Integer> entry : currentLines.entrySet()) {
                 obj.getScore(entry.getKey()).setScore(entry.getValue());
             }
