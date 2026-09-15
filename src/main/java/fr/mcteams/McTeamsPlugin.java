@@ -123,8 +123,8 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
             map.put("deposit_success", "§6Tu as déposé §f{0} lingots §6(multiplicateur appliqué). §6Nouveau solde: §f{1}");
             map.put("deposit_empty", "§6Tu n'as pas d'or dans ton inventaire !");
             map.put("balance_msg", "§6Ton solde est de : §f{0} Or");
-            map.put("sell_usage", "§6Usage: §f/sell <id> <quantité> <prix>");
-            map.put("sell_not_enough", "§6Tu n'as pas assez de cet item dans ton inventaire !");
+            map.put("sell_usage", "§6Usage: §f/sell <quantité> <prix>");
+            map.put("sell_not_enough", "§6Tu n'as pas assez de cet item dans ton inventaire ou tu tiens de l'air !");
             map.put("sell_success", "§6Item mis en vente sous l'ID §f{0} §6pour §f{1} Or l'unité §6!");
             map.put("buy_usage", "§6Usage: §f/buy <id> <quantité>");
             map.put("buy_not_found", "§6Cet ID n'existe pas sur le marché.");
@@ -166,8 +166,8 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
             map.put("deposit_success", "§6Has depositado §f{0} lingotes §6(multiplicador aplicado). Nuevo saldo: §f{1}");
             map.put("deposit_empty", "§6¡No tienes oro en tu inventario!");
             map.put("balance_msg", "§6Tu saldo es de: §f{0} Oro");
-            map.put("sell_usage", "§6Uso: §f/sell <id> <cantidad> <precio>");
-            map.put("sell_not_enough", "§6¡No tienes suficiente de este objeto en tu inventario!");
+            map.put("sell_usage", "§6Uso: §f/sell <cantidad> <precio>");
+            map.put("sell_not_enough", "§6¡No tienes suficiente de este objeto o tienes aire en la mano!");
             map.put("sell_success", "§6¡Objeto puesto a la venta con ID §f{0} §6por §f{1} Oro c/u §6!");
             map.put("buy_usage", "§6Uso: §f/buy <id> <cantidad>");
             map.put("buy_not_found", "§6Este ID no existe en el mercado.");
@@ -209,8 +209,8 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
             map.put("deposit_success", "§6You deposited §f{0} ingots §6(multiplier applied). New balance: §f{1}");
             map.put("deposit_empty", "§6You don't have any gold in your inventory!");
             map.put("balance_msg", "§6Your balance is: §f{0} Gold");
-            map.put("sell_usage", "§6Usage: §f/sell <id> <quantity> <price>");
-            map.put("sell_not_enough", "§6You don't have enough of this item in your inventory!");
+            map.put("sell_usage", "§6Usage: §f/sell <quantity> <price>");
+            map.put("sell_not_enough", "§6You don't have enough of this item or you are holding air!");
             map.put("sell_success", "§6Item listed for sale with ID §f{0} §6for §f{1} Gold each§6!");
             map.put("buy_usage", "§6Usage: §f/buy <id> <quantity>");
             map.put("buy_not_found", "§6This ID does not exist in the market.");
@@ -873,20 +873,22 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                 break;
 
             case "sell":
-                if (args.length != 3) {
+                if (args.length != 2) {
                     p.sendMessage(getMsg(p, "sell_usage"));
                     return true;
                 }
                 try {
-                    String sellId = args[0];
-                    int qty = Integer.parseInt(args[1]);
-                    double price = Double.parseDouble(args[2]);
+                    int qty = Integer.parseInt(args[0]);
+                    double price = Double.parseDouble(args[1]);
 
                     ItemStack inHand = p.getItemInHand();
                     if (inHand == null || inHand.getType() == Material.AIR || inHand.getAmount() < qty) {
                         p.sendMessage(getMsg(p, "sell_not_enough"));
                         return true;
                     }
+                    
+                    // Récupération automatique de l'ID Spigot (id numérique via getTypeId() ou material id)
+                    String sellId = String.valueOf(inHand.getTypeId());
                     
                     // Cloner l'item AVANT de modifier l'inventaire
                     ItemStack toSell = inHand.clone();
