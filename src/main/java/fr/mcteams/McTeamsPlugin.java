@@ -344,12 +344,26 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
 
     @EventHandler
     public void onJoin(PlayerJoinEvent e) {
+        e.setJoinMessage(null); // Supprime le message de connexion de base
         Player p = e.getPlayer();
         playerRanks.putIfAbsent(p.getUniqueId(), "default");
         playerLangs.putIfAbsent(p.getUniqueId(), "en");
         spawnProtected.put(p.getUniqueId(), true);
         setupPlayerScoreboard(p);
         updatePlayerDisplayNameAndTab(p);
+
+        // Clear chat (200 lignes vides)
+        for (int i = 0; i < 200; i++) {
+            p.sendMessage("");
+        }
+
+        // Affichage du message de bienvenue personnalisé
+        p.sendMessage("§f§m-----------------------------------");
+        p.sendMessage("§fWelcome to Soup§6Teams §fMap 1");
+        p.sendMessage("");
+        p.sendMessage("§fhttps://www.soupteams.eu");
+        p.sendMessage("§f§m-----------------------------------");
+
         if (spawnLocation != null) {
             p.teleport(spawnLocation);
         }
@@ -357,6 +371,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
 
     @EventHandler
     public void onQuit(PlayerQuitEvent e) {
+        e.setQuitMessage(null); // Supprime le message de déconnexion de base
         Player p = e.getPlayer();
         if (isInCombat(p)) {
             p.setHealth(0.0);
@@ -467,7 +482,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
     private String getRankColorCode(String rank) {
         switch (rank.toLowerCase()) {
             case "owner": return "§4";
-            case "mod": case "moderator": return "§b";
+            case "mod": case "moderator": return "§5";
             case "elite": return "§b";
             case "helper": return "§e";
             case "vip": return "§6";
@@ -481,9 +496,9 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         String clan = playerTeam.get(p.getUniqueId());
         String clanTag = (clan != null) ? "§f[" + clan + "] " : "";
 
-        String formattedName = clanTag + colorCode + p.getName();
-        p.setPlayerListName(formattedName);
-        p.setCustomName(formattedName);
+        String formattedName = colorCode + p.getName();
+        p.setPlayerListName(clanTag + formattedName);
+        p.setCustomName(clanTag + formattedName);
         p.setCustomNameVisible(true);
     }
 
@@ -494,7 +509,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
             target.setScoreboard(board);
         }
         createRankTeamInBoard(board, "01owner", "§4");
-        createRankTeamInBoard(board, "02mod", "§b");
+        createRankTeamInBoard(board, "02mod", "§5");
         createRankTeamInBoard(board, "03elite", "§b");
         createRankTeamInBoard(board, "04helper", "§e");
         createRankTeamInBoard(board, "05vip", "§6");
@@ -594,14 +609,18 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                     p.sendMessage(getMsg(p, "in_combat_tp"));
                     return true;
                 }
-                double currentBal = balances.getOrDefault(uuid, 0.0);
-                if (currentBal < 3.0) {
-                    p.sendMessage(getMsg(p, "spawn_no_gold"));
-                    return true;
+                if (p.isOp()) {
+                    startTeleportation(p, spawnLocation, "Spawn", 0, true);
+                } else {
+                    double currentBal = balances.getOrDefault(uuid, 0.0);
+                    if (currentBal < 3.0) {
+                        p.sendMessage(getMsg(p, "spawn_no_gold"));
+                        return true;
+                    }
+                    balances.put(uuid, currentBal - 3.0);
+                    saveData();
+                    startTeleportation(p, spawnLocation, "Spawn", 15, true);
                 }
-                balances.put(uuid, currentBal - 3.0);
-                saveData();
-                startTeleportation(p, spawnLocation, "Spawn", 15, true);
                 break;
 
             case "setrank":
