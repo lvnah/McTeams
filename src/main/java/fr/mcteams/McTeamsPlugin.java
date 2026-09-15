@@ -610,7 +610,6 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         p.getInventory().clear();
         p.setGameMode(GameMode.CREATIVE);
 
-        // Ajout des items de modération
         p.getInventory().setItem(0, createModItem(Material.COMPASS, "§6» §eRandom Teleport §6«"));
         p.getInventory().setItem(1, createModItem(Material.BOOK, "§6» §ePlayer Inspector §6«"));
         p.getInventory().setItem(2, createModItem(Material.ENCHANTED_BOOK, "§6» §eVanish (Simulated) §6«"));
@@ -889,13 +888,14 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                         return true;
                     }
                     
+                    // Cloner l'item AVANT de modifier l'inventaire
+                    ItemStack toSell = inHand.clone();
+                    toSell.setAmount(qty);
+                    
                     inHand.setAmount(inHand.getAmount() - qty);
                     if (inHand.getAmount() <= 0) {
                         p.setItemInHand(null);
                     }
-                    
-                    ItemStack toSell = inHand.clone();
-                    toSell.setAmount(qty);
                     
                     market.add(new MarketItem(sellId, p.getName(), uuid, toSell, price));
                     p.sendMessage(getMsg(p, "sell_success", sellId, price));
@@ -907,7 +907,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
             case "buyview":
                 p.sendMessage("§6--- Market ---");
                 for (MarketItem item : market) {
-                    p.sendMessage("§6ID: §f" + item.id + " §6| §f" + item.item.getAmount() + "x " + item.item.getType().name().toLowerCase() + " §6| Price (each): §f" + item.price + " Gold §6| Seller: §f" + item.seller);
+                    p.sendMessage("§6ID: §f" + item.id + " §6| Item: §f" + item.item.getAmount() + "x " + item.item.getType().name() + " §6| Price: §f" + item.price + " Gold each");
                 }
                 break;
 
