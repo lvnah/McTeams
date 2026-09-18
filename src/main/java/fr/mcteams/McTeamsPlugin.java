@@ -378,9 +378,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         p.sendMessage("§fhttps://www.soupteams.eu");
         p.sendMessage("§f§m-----------------------------------");
 
-        if (spawnLocation != null) {
-            p.teleport(spawnLocation);
-        }
+        // Suppression de la téléportation automatique au spawn à la connexion (le joueur reste là où il s'est déconnecté)
     }
 
     @EventHandler
@@ -887,10 +885,8 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                         return true;
                     }
                     
-                    // Récupération automatique de l'ID Spigot (id numérique via getTypeId() ou material id)
                     String sellId = String.valueOf(inHand.getTypeId());
                     
-                    // Cloner l'item AVANT de modifier l'inventaire
                     ItemStack toSell = inHand.clone();
                     toSell.setAmount(qty);
                     
