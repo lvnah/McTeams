@@ -5,6 +5,7 @@ import com.sk89q.worldguard.protection.ApplicableRegionSet;
 import com.sk89q.worldguard.protection.regions.ProtectedRegion;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
+import org.bukkit.Difficulty;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.Material;
@@ -13,6 +14,7 @@ import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.ConfigurationSection;
+import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -20,6 +22,7 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
+import org.bukkit.event.enchantment.EnchantItemEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.FoodLevelChangeEvent;
@@ -30,6 +33,7 @@ import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.BookMeta;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitRunnable;
@@ -63,6 +67,11 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         getConfig().options().copyDefaults(true);
         saveConfig();
         loadData();
+
+        // Fix de la difficulté du monde à 1 (Easy) pour éviter la perte trop rapide de nourriture
+        for (World world : Bukkit.getWorlds()) {
+            world.setDifficulty(Difficulty.EASY);
+        }
 
         String[] cmds = {"setspawn", "spawn", "go", "team", "deposit", "balance", "bal", "sell", "buy", "buyview", "setrank", "lang", "gm", "mod", "clearchat"};
         for (String cmd : cmds) {
@@ -368,6 +377,22 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         setupPlayerScoreboard(p);
         updatePlayerDisplayNameAndTab(p);
 
+        // Vérification de la première connexion (First Join)
+        if (!p.hasPlayedBefore()) {
+            // Canne à pêche avec Lure 1
+            ItemStack fishingRod = new ItemStack(Material.FISHING_ROD, 1);
+            fishingRod.addUnsafeEnchantment(Enchantment.LUCK, 1); // LUCK représente Lure dans l'API Spigot
+
+            // Livre enchanté personnalisé
+            ItemStack book = new ItemStack(Material.WRITTEN_BOOK, 1);
+            BookMeta bookMeta = (BookMeta) book.getItemMeta();
+            bookMeta.setDisplayName("§fWelcome to Soup§6Teams");
+            bookMeta.setPages("§fWelcome to Soup§6Soup §fMap 1");
+            book.setItemMeta(bookMeta);
+
+            p.getInventory().addItem(fishingRod, book);
+        }
+
         for (int i = 0; i < 200; i++) {
             p.sendMessage("");
         }
@@ -377,8 +402,17 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         p.sendMessage("");
         p.sendMessage("§fhttps://www.soupteams.eu");
         p.sendMessage("§f§m-----------------------------------");
+    }
 
-        // Suppression de la téléportation automatique au spawn à la connexion (le joueur reste là où il s'est déconnecté)
+    @EventHandler
+    public void onEnchant(EnchantItemEvent e) {
+        // Empêcher l'enchantement Knockback (Recul) sur une épée
+        if (e.getItem().getType().name().contains("SWORD")) {
+            if (e.getEnchantsToAdd().containsKey(Enchantment.KNOCKBACK)) {
+                e.getEnchantsToAdd().remove(Enchantment.KNOCKBACK);
+                e.getEnchanter().sendMessage("§cL'enchantement Knockback est interdit sur les épées !");
+            }
+        }
     }
 
     @EventHandler
