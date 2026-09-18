@@ -16,6 +16,7 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.Entity;
+import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
@@ -25,8 +26,11 @@ import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.enchantment.EnchantItemEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
+import org.bukkit.event.entity.EntityExplodeEvent;
 import org.bukkit.event.entity.FoodLevelChangeEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
+import org.bukkit.event.inventory.CraftItemEvent;
+import org.bukkit.event.inventory.PrepareAnvilEvent;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
 import org.bukkit.event.player.PlayerDropItemEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
@@ -68,7 +72,6 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         saveConfig();
         loadData();
 
-        // Fix de la difficulté du monde à 1 (Easy) pour éviter la perte trop rapide de nourriture
         for (World world : Bukkit.getWorlds()) {
             world.setDifficulty(Difficulty.EASY);
         }
@@ -377,13 +380,10 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         setupPlayerScoreboard(p);
         updatePlayerDisplayNameAndTab(p);
 
-        // Vérification de la première connexion (First Join)
         if (!p.hasPlayedBefore()) {
-            // Canne à pêche avec Lure 1
             ItemStack fishingRod = new ItemStack(Material.FISHING_ROD, 1);
-            fishingRod.addUnsafeEnchantment(Enchantment.LUCK, 1); // LUCK représente Lure dans l'API Spigot
+            fishingRod.addUnsafeEnchantment(Enchantment.LUCK, 1);
 
-            // Livre enchanté personnalisé
             ItemStack book = new ItemStack(Material.WRITTEN_BOOK, 1);
             BookMeta bookMeta = (BookMeta) book.getItemMeta();
             bookMeta.setDisplayName("§fWelcome to Soup§6Teams");
@@ -406,12 +406,39 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
 
     @EventHandler
     public void onEnchant(EnchantItemEvent e) {
-        // Empêcher l'enchantement Knockback (Recul) sur une épée
         if (e.getItem().getType().name().contains("SWORD")) {
             if (e.getEnchantsToAdd().containsKey(Enchantment.KNOCKBACK)) {
                 e.getEnchantsToAdd().remove(Enchantment.KNOCKBACK);
                 e.getEnchanter().sendMessage("§cL'enchantement Knockback est interdit sur les épées !");
             }
+        }
+    }
+
+    @EventHandler
+    public void onPrepareAnvil(PrepareAnvilEvent e) {
+        ItemStack result = e.getResult();
+        if (result != null && result.getType().name().contains("SWORD")) {
+            if (result.containsEnchantment(Enchantment.KNOCKBACK)) {
+                result.removeEnchantment(Enchantment.KNOCKBACK);
+                e.setResult(null);
+            }
+        }
+    }
+
+    @EventHandler
+    public void onCraft(CraftItemEvent e) {
+        if (e.getRecipe().getResult().getType() == Material.TNT) {
+            e.setCancelled(true);
+            if (e.getWhoClicked() instanceof Player) {
+                e.getWhoClicked().sendMessage("§cLe craft de la TNT est désactivé !");
+            }
+        }
+    }
+
+    @EventHandler
+    public void onEntityExplode(EntityExplodeEvent e) {
+        if (e.getEntityType() == EntityType.PRIMED_TNT) {
+            e.setCancelled(true);
         }
     }
 
