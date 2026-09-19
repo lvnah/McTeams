@@ -18,6 +18,7 @@ import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Player;
+import org.bukkit.entity.Projectile;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
@@ -456,6 +457,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         if (e.getEntity() instanceof Player) {
             Player p = (Player) e.getEntity();
             
+            // Si le joueur a la protection du spawn, la faim est TOTALEMENT bloquée à 20
             if (spawnProtected.getOrDefault(p.getUniqueId(), false) || isInSpawnRegion(p)) {
                 e.setCancelled(true);
                 p.setFoodLevel(20);
@@ -475,6 +477,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
     public void onEntityDamage(EntityDamageEvent e) {
         if (e.getEntity() instanceof Player) {
             Player p = (Player) e.getEntity();
+            // Annule complètement les dégâts (chute, feu, monstres) sous protection
             if (spawnProtected.getOrDefault(p.getUniqueId(), false) && e.getCause() != EntityDamageEvent.DamageCause.VOID) {
                 e.setCancelled(true);
             }
@@ -516,12 +519,30 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
 
     @EventHandler
     public void onDamage(EntityDamageByEntityEvent e) {
-        if (e.getEntity() instanceof Player && e.getDamager() instanceof Player) {
-            Player victim = (Player) e.getEntity();
-            Player attacker = (Player) e.getDamager();
-
-            if (spawnProtected.getOrDefault(victim.getUniqueId(), false) || spawnProtected.getOrDefault(attacker.getUniqueId(), false)) {
+        if (!(e.getEntity() instanceof Player)) return;
+        Player victim = (Player) e.getEntity();
+        
+        Player attacker = null;
+        if (e.getDamager() instanceof Player) {
+            attacker = (Player) e.getDamager();
+        } else if (e.getDamager() instanceof Projectile) {
+            Projectile proj = (Projectile) e.getDamager();
+            if (proj.getShooter() instanceof Player) {
+                attacker = (Player) proj.getShooter();
+            }
+        }
+        
+        if (attacker != null && attacker != victim) {
+            // Anti-PvP lié à la protection de Spawn (pour la cible)
+            if (spawnProtected.getOrDefault(victim.getUniqueId(), false)) {
                 e.setCancelled(true);
+                attacker.sendMessage("§cCe joueur a la protection du spawn !");
+                return;
+            }
+            // Anti-PvP lié à la protection de Spawn (pour l'attaquant)
+            if (spawnProtected.getOrDefault(attacker.getUniqueId(), false)) {
+                e.setCancelled(true);
+                attacker.sendMessage("§cTu ne peux pas attaquer tant que tu as la protection du spawn !");
                 return;
             }
 
@@ -578,8 +599,11 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         return true;
     }
 
+    // Le chat manuel annule tout événement de Bukkit/Spigot pour écrire nous-mêmes le format parfait 
+    // Format garanti : [Clan] Couleur Pseudo > Message (Chevron en blanc, Message en blanc)
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onChat(AsyncPlayerChatEvent e) {
+        e.setCancelled(true);
         Player p = e.getPlayer();
         String rank = playerRanks.getOrDefault(p.getUniqueId(), "default");
         String colorCode = getRankColorCode(rank);
@@ -587,8 +611,13 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         
         String clanTag = (clan != null && !clan.isEmpty()) ? "§f[" + clan + "] " : "";
         
-        p.setDisplayName(clanTag + colorCode + p.getName());
-        e.setFormat("%1$s §7> §f%2$s");
+        // §f pour remettre le chevron et le message en blanc pur !
+        String finalMessage = clanTag + colorCode + p.getName() + " §f> " + e.getMessage();
+        
+        for (Player online : Bukkit.getOnlinePlayers()) {
+            online.sendMessage(finalMessage);
+        }
+        Bukkit.getConsoleSender().sendMessage(finalMessage);
     }    
 
     private String getRankColorCode(String rank) {
