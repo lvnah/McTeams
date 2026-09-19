@@ -629,7 +629,6 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         String colorCode = getRankColorCode(rank);
         String clan = playerTeam.get(p.getUniqueId());
         
-        // Format [NomDuClan] pour la liste tab et au-dessus du joueur (F5)
         String clanTag = (clan != null) ? "§f[" + clan + "] " : "";
         String tabName = clanTag + colorCode + p.getName();
         
@@ -637,8 +636,42 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
             tabName = tabName.substring(0, 16);
         }
         p.setPlayerListName(tabName);
-        p.setCustomName(colorCode + p.getName());
+        p.setCustomName(clanTag + colorCode + p.getName());
         p.setCustomNameVisible(true);
+    }
+
+    private void enableModMode(Player p) {
+        modMode.add(p.getUniqueId());
+        modInventories.put(p.getUniqueId(), p.getInventory().getContents());
+        p.getInventory().clear();
+        p.setGameMode(GameMode.CREATIVE);
+
+        p.getInventory().setItem(0, createModItem(Material.COMPASS, "§6» §eRandom Teleport §6«"));
+        p.getInventory().setItem(1, createModItem(Material.BOOK, "§6» §ePlayer Inspector §6«"));
+        p.getInventory().setItem(2, createModItem(Material.ENCHANTED_BOOK, "§6» §eVanish (Simulated) §6«"));
+        p.getInventory().setItem(7, createModItem(Material.REDSTONE_LAMP_ON, "§6» §eFreeze Player §6«"));
+        p.getInventory().setItem(8, createModItem(Material.REDSTONE_BLOCK, "§c» §4Exit Mod Mode §c«"));
+        
+        p.sendMessage("§6Mod mode enabled. Tools loaded.");
+    }
+
+    private void disableModMode(Player p) {
+        modMode.remove(p.getUniqueId());
+        p.getInventory().clear();
+        if (modInventories.containsKey(p.getUniqueId())) {
+            p.getInventory().setContents(modInventories.get(p.getUniqueId()));
+            modInventories.remove(p.getUniqueId());
+        }
+        p.setGameMode(GameMode.SURVIVAL);
+        p.sendMessage("§6Mod mode disabled. Inventory restored.");
+    }
+
+    private ItemStack createModItem(Material mat, String name) {
+        ItemStack item = new ItemStack(mat, 1);
+        ItemMeta meta = item.getItemMeta();
+        meta.setDisplayName(name);
+        item.setItemMeta(meta);
+        return item;
     }
 
     private void updateScoreboards() {
@@ -1157,13 +1190,11 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                 }
                 String teamName = args[1];
                 
-                // Validation de la taille du nom du clan (entre 1 et 10 caractères)
                 if (teamName.length() < 1 || teamName.length() > 10) {
                     p.sendMessage("§cLe nom du clan doit contenir entre 1 et 10 caractères !");
                     return;
                 }
                 
-                // Vérification si le nom est unique (insensible à la casse)
                 boolean alreadyExists = teams.keySet().stream().anyMatch(t -> t.equalsIgnoreCase(teamName));
                 if (alreadyExists) { 
                     p.sendMessage("§cCe nom de clan est déjà utilisé."); 
