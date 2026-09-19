@@ -453,10 +453,24 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
 
     @EventHandler
     public void onFoodLevelChange(FoodLevelChangeEvent e) {
-        // Bloque complètement la perte de nourriture pour tout le monde en permanence (idéal pour Soup PvP)
         if (e.getEntity() instanceof Player) {
-            e.setCancelled(true);
-            ((Player) e.getEntity()).setFoodLevel(20);
+            Player p = (Player) e.getEntity();
+            
+            // 1. Protection au spawn (la faim reste bloquée au max)
+            if (spawnProtected.getOrDefault(p.getUniqueId(), false) || isInSpawnRegion(p)) {
+                e.setCancelled(true);
+                p.setFoodLevel(20);
+                return;
+            }
+            
+            // 2. Ralentissement de la perte de faim en dehors du spawn (mode paisible/lent)
+            int currentFood = p.getFoodLevel();
+            if (e.getFoodLevel() < currentFood) { // Si le jeu essaie de baisser la faim
+                // 3 chances sur 4 (75%) d'annuler la perte de nourriture
+                if (new Random().nextInt(4) != 0) {
+                    e.setCancelled(true);
+                }
+            }
         }
     }
 
@@ -575,9 +589,14 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         String colorCode = getRankColorCode(rank);
         String clan = playerTeam.get(p.getUniqueId());
         
+        // Tag du clan avec espace s'il existe
         String clanTag = (clan != null && !clan.isEmpty()) ? "§f[" + clan + "] " : "";
         
-        e.setFormat(clanTag + colorCode + p.getName() + " §7> §f%2$s");
+        // Spigot 1.8.8 EXIGE %2$s pour le message, sinon il force le format <pseudo> par défaut
+        // On échappe les % dans le pseudo au cas où pour éviter un crash de format
+        String safeName = p.getName().replace("%", "%%");
+        
+        e.setFormat(clanTag + colorCode + safeName + " §7> §f%2$s");
     }
 
     private String getRankColorCode(String rank) {
