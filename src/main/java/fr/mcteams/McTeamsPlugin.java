@@ -414,7 +414,6 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                 e.setResult(null);
             }
         }
-        // Vérifier aussi les items mis dans l'enclume
         ItemStack item1 = inv.getItem(0);
         ItemStack item2 = inv.getItem(1);
         if ((item1 != null && item1.containsEnchantment(Enchantment.KNOCKBACK)) || (item2 != null && item2.containsEnchantment(Enchantment.KNOCKBACK))) {
@@ -512,7 +511,6 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         if (p.isOp()) return;
         if (isInSpawnRegion(p) || (spawnLocation != null && p.getLocation().distanceSquared(spawnLocation) <= 2500)) {
             e.setCancelled(true);
-            // Aucun message de refus pour éviter le spam
         }
     }
 
@@ -522,7 +520,6 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         if (p.isOp()) return;
         if (isInSpawnRegion(p) || (spawnLocation != null && p.getLocation().distanceSquared(spawnLocation) <= 2500)) {
             e.setCancelled(true);
-            // Aucun message de refus pour éviter le spam
         }
     }
 
@@ -534,7 +531,6 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
 
             if (spawnProtected.getOrDefault(victim.getUniqueId(), false) || spawnProtected.getOrDefault(attacker.getUniqueId(), false)) {
                 e.setCancelled(true);
-                // Aucun message de refus pour éviter le spam
                 return;
             }
 
@@ -907,7 +903,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                     p.sendMessage("§6TEAMS §f! §6/team info [name] §f! §6Affiche les infos d'une team");
                     p.sendMessage("§6TEAMS §f! §6/team leave §f! §6Quitte ta team");
                     p.sendMessage("§6TEAMS §f! §6/team kick [player] §f! §6Expulse un joueur");
-                    return;
+                    return true;
                 }
                 handleTeamCommand(p, args);
                 break;
