@@ -349,6 +349,11 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         }
 
         updateAllVisuals();
+        updatePlayerVisuals(p);
+        // On rafraîchit tous les autres pour qu'ils voient le nouveau joueur correctement
+        for(Player online : Bukkit.getOnlinePlayers()){
+            updatePlayerVisuals(online);
+        }
 
         for (int i = 0; i < 200; i++) {
             p.sendMessage("");
@@ -581,7 +586,6 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         return true;
     }
 
-    // Le paramètre priority HIGHEST force ton plugin à écraser EssentialsChat
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onChat(AsyncPlayerChatEvent e) {
         Player p = e.getPlayer();
@@ -589,15 +593,14 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         String colorCode = getRankColorCode(rank);
         String clan = playerTeam.get(p.getUniqueId());
         
-        // Tag du clan avec espace s'il existe
         String clanTag = (clan != null && !clan.isEmpty()) ? "§f[" + clan + "] " : "";
         
-        // Spigot 1.8.8 EXIGE %2$s pour le message, sinon il force le format <pseudo> par défaut
-        // On échappe les % dans le pseudo au cas où pour éviter un crash de format
-        String safeName = p.getName().replace("%", "%%");
+        // On modifie le DisplayName (le %1$s de Spigot) pour inclure le clan et la couleur
+        p.setDisplayName(clanTag + colorCode + p.getName());
         
-        e.setFormat(clanTag + colorCode + safeName + " §7> §f%2$s");
-    }
+        // Le format officiel attendu par Spigot : %1$s = DisplayName, %2$s = Message
+        e.setFormat("%1$s §7> §f%2$s");
+    }    
 
     private String getRankColorCode(String rank) {
         switch (rank.toLowerCase()) {
@@ -610,47 +613,53 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         }
     }
 
-    private void updateAllVisuals() {
-        for (Player p : Bukkit.getOnlinePlayers()) {
-            String rank = playerRanks.getOrDefault(p.getUniqueId(), "default");
-            String colorCode = getRankColorCode(rank);
-            String clan = playerTeam.get(p.getUniqueId());
-            
-            String clanTag = (clan != null && !clan.isEmpty()) ? "§f[" + clan + "] " : "";
-            String fullPrefix = clanTag + colorCode;
-            
-            if (fullPrefix.length() > 16) {
-                fullPrefix = fullPrefix.substring(0, 16);
-            }
-            
-            String tabName = fullPrefix + p.getName();
-            if (tabName.length() > 16) {
-                tabName = tabName.substring(0, 16);
-            }
-            p.setPlayerListName(tabName);
+    private void updatePlayerVisuals(Player p) {
+        String rank = playerRanks.getOrDefault(p.getUniqueId(), "default");
+        String colorCode = getRankColorCode(rank);
+        String clan = playerTeam.get(p.getUniqueId());
+        
+        String clanTag = (clan != null && !clan.isEmpty()) ? "§f[" + clan + "] " : "";
+        String fullPrefix = clanTag + colorCode;
+        
+        // Sécurité stricte 1.8.8 : le préfixe Scoreboard = MAX 16 caractères
+        if (fullPrefix.length() > 16) {
+            fullPrefix = fullPrefix.substring(0, 16);
+        }
+        
+        // Force le DisplayName et le CustomName (F5)
+        p.setDisplayName(fullPrefix + p.getName());
+        p.setCustomName(fullPrefix + p.getName());
+        p.setCustomNameVisible(true);
+        
+        // Met à jour la Tablist
+        String tabName = fullPrefix + p.getName();
+        if (tabName.length() > 16) {
+            tabName = tabName.substring(0, 16);
+        }
+        p.setPlayerListName(tabName);
 
-            for (Player viewer : Bukkit.getOnlinePlayers()) {
-                Scoreboard board = viewer.getScoreboard();
-                if (board == Bukkit.getScoreboardManager().getMainScoreboard()) {
-                    board = Bukkit.getScoreboardManager().getNewScoreboard();
-                    viewer.setScoreboard(board);
-                }
-                
-                String teamName = p.getName();
-                if (teamName.length() > 16) {
-                    teamName = teamName.substring(0, 16);
-                }
-                
-                Team t = board.getTeam(teamName);
-                if (t == null) {
-                    t = board.registerNewTeam(teamName);
-                }
-                
-                t.setPrefix(fullPrefix);
-                t.setSuffix("");
-                if (!t.hasEntry(p.getName())) {
-                    t.addEntry(p.getName());
-                }
+        // Met à jour le Scoreboard F5 pour tous les joueurs en ligne
+        for (Player viewer : Bukkit.getOnlinePlayers()) {
+            Scoreboard board = viewer.getScoreboard();
+            if (board == Bukkit.getScoreboardManager().getMainScoreboard()) {
+                board = Bukkit.getScoreboardManager().getNewScoreboard();
+                viewer.setScoreboard(board);
+            }
+            
+            String teamName = p.getName();
+            if (teamName.length() > 16) {
+                teamName = teamName.substring(0, 16);
+            }
+            
+            Team t = board.getTeam(teamName);
+            if (t == null) {
+                t = board.registerNewTeam(teamName);
+            }
+            
+            t.setPrefix(fullPrefix);
+            t.setSuffix("");
+            if (!t.hasEntry(p.getName())) {
+                t.addEntry(p.getName());
             }
         }
     }
@@ -931,7 +940,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                 }
                 playerRanks.put(target.getUniqueId(), newRank);
                 saveData();
-                updateAllVisuals();
+                updatePlayerVisuals(target);
                 p.sendMessage(getMsg(p, "rank_updated", target.getName(), newRank));
                 target.sendMessage(getMsg(target, "rank_target_update", newRank));
                 break;
