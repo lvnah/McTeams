@@ -19,6 +19,7 @@ import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.block.BlockBreakEvent;
@@ -328,13 +329,11 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         playerRanks.putIfAbsent(p.getUniqueId(), "default");
         playerLangs.putIfAbsent(p.getUniqueId(), "en");
         
-        // Protection donnée à la connexion
         spawnProtected.put(p.getUniqueId(), true); 
 
-        // Si le joueur vient pour la première fois
         if (!p.hasPlayedBefore()) {
             if (spawnLocation != null) {
-                p.teleport(spawnLocation); // Téléportation immédiate au spawn protégé
+                p.teleport(spawnLocation);
             }
             
             ItemStack fishingRod = new ItemStack(Material.FISHING_ROD, 1);
@@ -349,7 +348,6 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
             p.getInventory().addItem(fishingRod, book);
         }
 
-        // Met à jour les visuels pour tout le monde (F5 + Tablist)
         updateAllVisuals();
 
         for (int i = 0; i < 200; i++) {
@@ -455,12 +453,10 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
 
     @EventHandler
     public void onFoodLevelChange(FoodLevelChangeEvent e) {
+        // Bloque complètement la perte de nourriture pour tout le monde en permanence (idéal pour Soup PvP)
         if (e.getEntity() instanceof Player) {
-            Player p = (Player) e.getEntity();
-            if (spawnProtected.getOrDefault(p.getUniqueId(), false) || isInSpawnRegion(p)) {
-                e.setCancelled(true);
-                p.setFoodLevel(20);
-            }
+            e.setCancelled(true);
+            ((Player) e.getEntity()).setFoodLevel(20);
         }
     }
 
@@ -571,7 +567,8 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         return true;
     }
 
-    @EventHandler
+    // Le paramètre priority HIGHEST force ton plugin à écraser EssentialsChat
+    @EventHandler(priority = EventPriority.HIGHEST)
     public void onChat(AsyncPlayerChatEvent e) {
         Player p = e.getPlayer();
         String rank = playerRanks.getOrDefault(p.getUniqueId(), "default");
@@ -580,7 +577,6 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         
         String clanTag = (clan != null && !clan.isEmpty()) ? "§f[" + clan + "] " : "";
         
-        // On force le formatage avec notre préfixe exact (contourne les autres plugins)
         e.setFormat(clanTag + colorCode + p.getName() + " §7> §f%2$s");
     }
 
@@ -601,22 +597,19 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
             String colorCode = getRankColorCode(rank);
             String clan = playerTeam.get(p.getUniqueId());
             
-            String clanTag = (clan != null) ? "§f[" + clan + "] " : "";
+            String clanTag = (clan != null && !clan.isEmpty()) ? "§f[" + clan + "] " : "";
             String fullPrefix = clanTag + colorCode;
             
-            // Sécurité stricte 1.8.8 : le préfixe ne DOIT PAS dépasser 16 caractères
             if (fullPrefix.length() > 16) {
                 fullPrefix = fullPrefix.substring(0, 16);
             }
             
-            // Mise à jour de la liste Tab
             String tabName = fullPrefix + p.getName();
             if (tabName.length() > 16) {
                 tabName = tabName.substring(0, 16);
             }
             p.setPlayerListName(tabName);
 
-            // Mise à jour des Scoreboards pour la vue au-dessus de la tête (F5)
             for (Player viewer : Bukkit.getOnlinePlayers()) {
                 Scoreboard board = viewer.getScoreboard();
                 if (board == Bukkit.getScoreboardManager().getMainScoreboard()) {
