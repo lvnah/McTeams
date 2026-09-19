@@ -226,7 +226,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
             map.put("team_already", "§cYou are already in a team.");
             map.put("team_created", "§6Team {0} created and saved!");
             map.put("hq_set", "§6Team HQ defined and saved!");
-            map.put("hq_none", "§cYour team has no HQ.");
+            map.put("hq_none", "§6Your team has no HQ.");
             map.put("team_not_in", "§cYou are not in a team.");
             map.put("team_kick", "§6Player {0} has been kicked.");
             map.put("combat_death", "§c[Combat] §f{0} disconnected in combat and was killed!");
@@ -489,7 +489,6 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
     public void onFoodLevelChange(FoodLevelChangeEvent e) {
         if (e.getEntity() instanceof Player) {
             Player p = (Player) e.getEntity();
-            // Pas de perte de nourriture si le joueur a le spawn protect ou s'il se trouve dans la région spawn
             if (spawnProtected.getOrDefault(p.getUniqueId(), false) || isInSpawnRegion(p)) {
                 e.setCancelled(true);
                 p.setFoodLevel(20);
@@ -631,11 +630,13 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         String rank = playerRanks.getOrDefault(p.getUniqueId(), "default");
         String colorCode = getRankColorCode(rank);
         String clan = playerTeam.get(p.getUniqueId());
+        
+        // Format [NomDuClan] CouleurRank Pseudo pour la liste tab et au-dessus du joueur (F5)
         String clanTag = (clan != null) ? "§f[" + clan + "] " : "";
+        String formattedName = clanTag + colorCode + p.getName();
 
-        String formattedName = colorCode + p.getName();
-        p.setPlayerListName(clanTag + formattedName);
-        p.setCustomName(clanTag + formattedName);
+        p.setPlayerListName(formattedName);
+        p.setCustomName(formattedName);
         p.setCustomNameVisible(true);
     }
 
