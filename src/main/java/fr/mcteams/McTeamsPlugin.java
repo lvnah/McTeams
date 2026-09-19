@@ -87,8 +87,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         getServer().getPluginManager().registerEvents(this, this);
         
         for (Player p : Bukkit.getOnlinePlayers()) {
-            setupPlayerScoreboard(p);
-            updatePlayerDisplayNameAndTab(p);
+            updatePlayerVisuals(p);
             spawnProtected.putIfAbsent(p.getUniqueId(), true);
             playerLangs.putIfAbsent(p.getUniqueId(), "en");
             playerRanks.putIfAbsent(p.getUniqueId(), "default");
@@ -226,7 +225,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
             map.put("team_already", "§cYou are already in a team.");
             map.put("team_created", "§6Team {0} created and saved!");
             map.put("hq_set", "§6Team HQ defined and saved!");
-            map.put("hq_none", "§6Your team has no HQ.");
+            map.put("hq_none", "§cYour team has no HQ.");
             map.put("team_not_in", "§cYou are not in a team.");
             map.put("team_kick", "§6Player {0} has been kicked.");
             map.put("combat_death", "§c[Combat] §f{0} disconnected in combat and was killed!");
@@ -368,8 +367,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         playerRanks.putIfAbsent(p.getUniqueId(), "default");
         playerLangs.putIfAbsent(p.getUniqueId(), "en");
         spawnProtected.put(p.getUniqueId(), true);
-        setupPlayerScoreboard(p);
-        updatePlayerDisplayNameAndTab(p);
+        updatePlayerVisuals(p);
 
         if (!p.hasPlayedBefore()) {
             ItemStack fishingRod = new ItemStack(Material.FISHING_ROD, 1);
@@ -626,99 +624,130 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         }
     }
 
-    private void updatePlayerDisplayNameAndTab(Player p) {
+    private void updatePlayerVisuals(Player p) {
         String rank = playerRanks.getOrDefault(p.getUniqueId(), "default");
         String colorCode = getRankColorCode(rank);
         String clan = playerTeam.get(p.getUniqueId());
         
-        // Format [NomDuClan] CouleurRank Pseudo pour la liste tab et au-dessus du joueur (F5)
+        // Format [NomDuClan] pour la liste tab et au-dessus du joueur (F5)
         String clanTag = (clan != null) ? "§f[" + clan + "] " : "";
-        String formattedName = clanTag + colorCode + p.getName();
-
-        p.setPlayerListName(formattedName);
-        p.setCustomName(formattedName);
+        String tabName = clanTag + colorCode + p.getName();
+        
+        if (tabName.length() > 16) {
+            tabName = tabName.substring(0, 16);
+        }
+        p.setPlayerListName(tabName);
+        p.setCustomName(colorCode + p.getName());
         p.setCustomNameVisible(true);
     }
 
-    private void setupPlayerScoreboard(Player target) {
-        Scoreboard board = target.getScoreboard();
-        if (board == Bukkit.getScoreboardManager().getMainScoreboard()) {
-            board = Bukkit.getScoreboardManager().getNewScoreboard();
-            target.setScoreboard(board);
-        }
-        createRankTeamInBoard(board, "01owner", "§4");
-        createRankTeamInBoard(board, "02mod", "§5");
-        createRankTeamInBoard(board, "03elite", "§b");
-        createRankTeamInBoard(board, "04helper", "§e");
-        createRankTeamInBoard(board, "05vip", "§6");
-        createRankTeamInBoard(board, "06default", "§f");
-
+    private void updateScoreboards() {
         for (Player p : Bukkit.getOnlinePlayers()) {
-            assignPlayerToRankTeam(p.getScoreboard(), target);
-        }
-    }
+            UUID uuid = p.getUniqueId();
+            
+            if (spawnProtected.getOrDefault(uuid, false)) {
+                if (!isInSpawnRegion(p)) {
+                    spawnProtected.put(uuid, false);
+                    p.sendMessage("§6You left the spawn zone and lost your §cprotection§6!");
+                }
+            }
 
-    private void createRankTeamInBoard(Scoreboard board, String teamName, String prefix) {
-        Team t = board.getTeam(teamName);
-        if (t == null) {
-            t = board.registerNewTeam(teamName);
-        }
-        t.setPrefix(prefix);
-        t.setSuffix("");
-    }
+            Scoreboard board = p.getScoreboard();
+            Objective obj = board.getObjective("mcteams");
+            if (obj == null) {
+                obj = board.registerNewObjective("mcteams", "dummy");
+                obj.setDisplaySlot(DisplaySlot.SIDEBAR);
+                obj.setDisplayName("§6SoupTeams §f[Map 1]");
+            }
 
-    private void assignPlayerToRankTeam(Scoreboard board, Player target) {
-        String rank = playerRanks.getOrDefault(target.getUniqueId(), "default").toLowerCase();
-        String teamKey = "06default";
-        if (rank.equals("owner")) teamKey = "01owner";
-        else if (rank.equals("mod") || rank.equals("moderator")) teamKey = "02mod";
-        else if (rank.equals("elite")) teamKey = "03elite";
-        else if (rank.equals("helper")) teamKey = "04helper";
-        else if (rank.equals("vip")) teamKey = "05vip";
+            Map<String, Integer> currentLines = new LinkedHashMap<>();
+            currentLines.put("§m---------------------", 7);
+            
+            String tName = playerTeam.getOrDefault(uuid, "None");
+            if(tName.length() > 10) tName = tName.substring(0, 10) + "..";
+            currentLines.put("§6Team: §f" + tName, 6);
+            
+            currentLines.put("§6Balance: §f" + df.format(balances.getOrDefault(uuid, 0.0)), 5);
+            
+            boolean isProtected = spawnProtected.getOrDefault(uuid, false);
+            currentLines.put("§6Spawn protection: " + (isProtected ? "§aEnable" : "§cDisable"), 4);
 
-        for (Team t : board.getTeams()) {
-            if (t.hasEntry(target.getName())) {
-                t.removeEntry(target.getName());
+            if (modMode.contains(uuid)) {
+                currentLines.put("§6Mod: §aEnable", 3);
+            }
+
+            if (activeTeleports.containsKey(uuid)) {
+                currentLines.put("§6Teleportation: §f" + activeTeleports.get(uuid), 2);
+            }
+            
+            currentLines.put("§f§m---------------------", 1);
+
+            for (String entry : board.getEntries()) {
+                if (!currentLines.containsKey(entry) && obj.getScore(entry).getScore() > 0) {
+                    board.resetScores(entry);
+                }
+            }
+
+            for (Map.Entry<String, Integer> entry : currentLines.entrySet()) {
+                obj.getScore(entry.getKey()).setScore(entry.getValue());
             }
         }
-        Team t = board.getTeam(teamKey);
-        if (t != null) {
-            t.addEntry(target.getName());
-        }
     }
 
-    private void enableModMode(Player p) {
-        modMode.add(p.getUniqueId());
-        modInventories.put(p.getUniqueId(), p.getInventory().getContents());
-        p.getInventory().clear();
-        p.setGameMode(GameMode.CREATIVE);
+    private boolean isInSpawnRegion(Player p) {
+        try {
+            ApplicableRegionSet set = WGBukkit.getRegionManager(p.getWorld()).getApplicableRegions(p.getLocation());
+            for (ProtectedRegion region : set) {
+                if (region.getId().equalsIgnoreCase("spawn")) {
+                    return true;
+                }
+            }
+        } catch (Exception ignored) {}
+        return false;
+    }
 
-        p.getInventory().setItem(0, createModItem(Material.COMPASS, "§6» §eRandom Teleport §6«"));
-        p.getInventory().setItem(1, createModItem(Material.BOOK, "§6» §ePlayer Inspector §6«"));
-        p.getInventory().setItem(2, createModItem(Material.ENCHANTED_BOOK, "§6» §eVanish (Simulated) §6«"));
-        p.getInventory().setItem(7, createModItem(Material.REDSTONE_LAMP_ON, "§6» §eFreeze Player §6«"));
-        p.getInventory().setItem(8, createModItem(Material.REDSTONE_BLOCK, "§c» §4Exit Mod Mode §c«"));
+    private boolean isInSpawnOrWarzone(Player p) {
+        try {
+            ApplicableRegionSet set = WGBukkit.getRegionManager(p.getWorld()).getApplicableRegions(p.getLocation());
+            for (ProtectedRegion region : set) {
+                String id = region.getId().toLowerCase();
+                if (id.equals("spawn") || id.equals("warzone")) {
+                    return true;
+                }
+            }
+        } catch (Exception ignored) {}
+        return false;
+    }
+
+    class TeamData {
+        String name;
+        String creatorName;
+        UUID creator;
+        List<String> members = new ArrayList<>();
+        Location hq;
         
-        p.sendMessage("§6Mod mode enabled. Tools loaded.");
-    }
-
-    private void disableModMode(Player p) {
-        modMode.remove(p.getUniqueId());
-        p.getInventory().clear();
-        if (modInventories.containsKey(p.getUniqueId())) {
-            p.getInventory().setContents(modInventories.get(p.getUniqueId()));
-            modInventories.remove(p.getUniqueId());
+        public TeamData(String name, String creatorName, UUID creator) {
+            this.name = name;
+            this.creatorName = creatorName;
+            this.creator = creator;
+            this.members.add(creatorName);
         }
-        p.setGameMode(GameMode.SURVIVAL);
-        p.sendMessage("§6Mod mode disabled. Inventory restored.");
     }
 
-    private ItemStack createModItem(Material mat, String name) {
-        ItemStack item = new ItemStack(mat, 1);
-        ItemMeta meta = item.getItemMeta();
-        meta.setDisplayName(name);
-        item.setItemMeta(meta);
-        return item;
+    class MarketItem {
+        String id;
+        String seller;
+        UUID sellerUuid;
+        ItemStack item;
+        double price;
+
+        public MarketItem(String id, String seller, UUID sellerUuid, ItemStack item, double price) {
+            this.id = id;
+            this.seller = seller;
+            this.sellerUuid = sellerUuid;
+            this.item = item;
+            this.price = price;
+        }
     }
 
     @Override
@@ -839,10 +868,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                 }
                 playerRanks.put(target.getUniqueId(), newRank);
                 saveData();
-                for (Player online : Bukkit.getOnlinePlayers()) {
-                    assignPlayerToRankTeam(online.getScoreboard(), target);
-                }
-                updatePlayerDisplayNameAndTab(target);
+                updatePlayerVisuals(target);
                 p.sendMessage(getMsg(p, "rank_updated", target.getName(), newRank));
                 target.sendMessage(getMsg(target, "rank_target_update", newRank));
                 break;
@@ -1121,16 +1147,34 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
 
         switch (action) {
             case "create":
-                if (currentTeam != null) { p.sendMessage(getMsg(p, "team_already")); return; }
-                if (args.length < 2) { p.sendMessage("§cUso: §f/team create <name>"); return; }
+                if (currentTeam != null) { 
+                    p.sendMessage("§cTu es déjà dans un clan !"); 
+                    return; 
+                }
+                if (args.length < 2) { 
+                    p.sendMessage("§cUso: §f/team create <name>"); 
+                    return; 
+                }
                 String teamName = args[1];
-                if (teams.containsKey(teamName)) { p.sendMessage("§cThis name is already taken."); return; }
+                
+                // Validation de la taille du nom du clan (entre 1 et 10 caractères)
+                if (teamName.length() < 1 || teamName.length() > 10) {
+                    p.sendMessage("§cLe nom du clan doit contenir entre 1 et 10 caractères !");
+                    return;
+                }
+                
+                // Vérification si le nom est unique (insensible à la casse)
+                boolean alreadyExists = teams.keySet().stream().anyMatch(t -> t.equalsIgnoreCase(teamName));
+                if (alreadyExists) { 
+                    p.sendMessage("§cCe nom de clan est déjà utilisé."); 
+                    return; 
+                }
                 
                 TeamData newTeam = new TeamData(teamName, p.getName(), uuid);
                 teams.put(teamName, newTeam);
                 playerTeam.put(uuid, teamName);
                 saveData();
-                updatePlayerDisplayNameAndTab(p);
+                updatePlayerVisuals(p);
                 p.sendMessage(getMsg(p, "team_created", teamName));
                 break;
 
@@ -1183,13 +1227,13 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                     teams.remove(currentTeam);
                     playerTeam.remove(uuid);
                     saveData();
-                    updatePlayerDisplayNameAndTab(p);
+                    updatePlayerVisuals(p);
                     p.sendMessage("§6You dissolved your team.");
                 } else {
                     lTeam.members.remove(p.getName());
                     playerTeam.remove(uuid);
                     saveData();
-                    updatePlayerDisplayNameAndTab(p);
+                    updatePlayerVisuals(p);
                     p.sendMessage("§6You left your team.");
                 }
                 break;
@@ -1214,7 +1258,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                 Player targetPlayer = Bukkit.getPlayer(targetName);
                 if (targetPlayer != null) {
                     playerTeam.remove(targetPlayer.getUniqueId());
-                    updatePlayerDisplayNameAndTab(targetPlayer);
+                    updatePlayerVisuals(targetPlayer);
                     targetPlayer.sendMessage("§cYou have been kicked from the team.");
                 }
                 saveData();
@@ -1228,114 +1272,5 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
             if (e instanceof Player && e != p) return true;
         }
         return false;
-    }
-
-    private void updateScoreboards() {
-        for (Player p : Bukkit.getOnlinePlayers()) {
-            UUID uuid = p.getUniqueId();
-            
-            if (spawnProtected.getOrDefault(uuid, false)) {
-                if (!isInSpawnRegion(p)) {
-                    spawnProtected.put(uuid, false);
-                    p.sendMessage("§6You left the spawn zone and lost your §cprotection§6!");
-                }
-            }
-
-            Scoreboard board = p.getScoreboard();
-            Objective obj = board.getObjective("mcteams");
-            if (obj == null) {
-                obj = board.registerNewObjective("mcteams", "dummy");
-                obj.setDisplaySlot(DisplaySlot.SIDEBAR);
-                obj.setDisplayName("§6SoupTeams §f[Map 1]");
-            }
-
-            Map<String, Integer> currentLines = new LinkedHashMap<>();
-            currentLines.put("§m---------------------", 7);
-            
-            String tName = playerTeam.getOrDefault(uuid, "None");
-            if(tName.length() > 10) tName = tName.substring(0, 10) + "..";
-            currentLines.put("§6Team: §f" + tName, 6);
-            
-            currentLines.put("§6Balance: §f" + df.format(balances.getOrDefault(uuid, 0.0)), 5);
-            
-            boolean isProtected = spawnProtected.getOrDefault(uuid, false);
-            currentLines.put("§6Spawn protection: " + (isProtected ? "§aEnable" : "§cDisable"), 4);
-
-            if (modMode.contains(uuid)) {
-                currentLines.put("§6Mod: §aEnable", 3);
-            }
-
-            if (activeTeleports.containsKey(uuid)) {
-                currentLines.put("§6Teleportation: §f" + activeTeleports.get(uuid), 2);
-            }
-            
-            currentLines.put("§f§m---------------------", 1);
-
-            for (String entry : board.getEntries()) {
-                if (!currentLines.containsKey(entry) && obj.getScore(entry).getScore() > 0) {
-                    board.resetScores(entry);
-                }
-            }
-
-            for (Map.Entry<String, Integer> entry : currentLines.entrySet()) {
-                obj.getScore(entry.getKey()).setScore(entry.getValue());
-            }
-        }
-    }
-
-    private boolean isInSpawnRegion(Player p) {
-        try {
-            ApplicableRegionSet set = WGBukkit.getRegionManager(p.getWorld()).getApplicableRegions(p.getLocation());
-            for (ProtectedRegion region : set) {
-                if (region.getId().equalsIgnoreCase("spawn")) {
-                    return true;
-                }
-            }
-        } catch (Exception ignored) {}
-        return false;
-    }
-
-    private boolean isInSpawnOrWarzone(Player p) {
-        try {
-            ApplicableRegionSet set = WGBukkit.getRegionManager(p.getWorld()).getApplicableRegions(p.getLocation());
-            for (ProtectedRegion region : set) {
-                String id = region.getId().toLowerCase();
-                if (id.equals("spawn") || id.equals("warzone")) {
-                    return true;
-                }
-            }
-        } catch (Exception ignored) {}
-        return false;
-    }
-
-    class TeamData {
-        String name;
-        String creatorName;
-        UUID creator;
-        List<String> members = new ArrayList<>();
-        Location hq;
-        
-        public TeamData(String name, String creatorName, UUID creator) {
-            this.name = name;
-            this.creatorName = creatorName;
-            this.creator = creator;
-            this.members.add(creatorName);
-        }
-    }
-
-    class MarketItem {
-        String id;
-        String seller;
-        UUID sellerUuid;
-        ItemStack item;
-        double price;
-
-        public MarketItem(String id, String seller, UUID sellerUuid, ItemStack item, double price) {
-            this.id = id;
-            this.seller = seller;
-            this.sellerUuid = sellerUuid;
-            this.item = item;
-            this.price = price;
-        }
     }
 }
