@@ -34,3 +34,5 @@ commands:
     description: Activer ou désactiver le mode modérateur/créatif
   clearchat:
     description: Effacer le chat pour tous les joueurs
+  help:
+    description: Aide commande
