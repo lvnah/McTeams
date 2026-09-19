@@ -349,11 +349,6 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         }
 
         updateAllVisuals();
-        updatePlayerVisuals(p);
-        // On rafraîchit tous les autres pour qu'ils voient le nouveau joueur correctement
-        for(Player online : Bukkit.getOnlinePlayers()){
-            updatePlayerVisuals(online);
-        }
 
         for (int i = 0; i < 200; i++) {
             p.sendMessage("");
@@ -461,17 +456,14 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         if (e.getEntity() instanceof Player) {
             Player p = (Player) e.getEntity();
             
-            // 1. Protection au spawn (la faim reste bloquée au max)
             if (spawnProtected.getOrDefault(p.getUniqueId(), false) || isInSpawnRegion(p)) {
                 e.setCancelled(true);
                 p.setFoodLevel(20);
                 return;
             }
             
-            // 2. Ralentissement de la perte de faim en dehors du spawn (mode paisible/lent)
             int currentFood = p.getFoodLevel();
-            if (e.getFoodLevel() < currentFood) { // Si le jeu essaie de baisser la faim
-                // 3 chances sur 4 (75%) d'annuler la perte de nourriture
+            if (e.getFoodLevel() < currentFood) {
                 if (new Random().nextInt(4) != 0) {
                     e.setCancelled(true);
                 }
@@ -595,10 +587,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         
         String clanTag = (clan != null && !clan.isEmpty()) ? "§f[" + clan + "] " : "";
         
-        // On modifie le DisplayName (le %1$s de Spigot) pour inclure le clan et la couleur
         p.setDisplayName(clanTag + colorCode + p.getName());
-        
-        // Le format officiel attendu par Spigot : %1$s = DisplayName, %2$s = Message
         e.setFormat("%1$s §7> §f%2$s");
     }    
 
@@ -613,6 +602,12 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         }
     }
 
+    private void updateAllVisuals() {
+        for (Player online : Bukkit.getOnlinePlayers()) {
+            updatePlayerVisuals(online);
+        }
+    }
+
     private void updatePlayerVisuals(Player p) {
         String rank = playerRanks.getOrDefault(p.getUniqueId(), "default");
         String colorCode = getRankColorCode(rank);
@@ -621,24 +616,20 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         String clanTag = (clan != null && !clan.isEmpty()) ? "§f[" + clan + "] " : "";
         String fullPrefix = clanTag + colorCode;
         
-        // Sécurité stricte 1.8.8 : le préfixe Scoreboard = MAX 16 caractères
         if (fullPrefix.length() > 16) {
             fullPrefix = fullPrefix.substring(0, 16);
         }
         
-        // Force le DisplayName et le CustomName (F5)
         p.setDisplayName(fullPrefix + p.getName());
         p.setCustomName(fullPrefix + p.getName());
         p.setCustomNameVisible(true);
         
-        // Met à jour la Tablist
         String tabName = fullPrefix + p.getName();
         if (tabName.length() > 16) {
             tabName = tabName.substring(0, 16);
         }
         p.setPlayerListName(tabName);
 
-        // Met à jour le Scoreboard F5 pour tous les joueurs en ligne
         for (Player viewer : Bukkit.getOnlinePlayers()) {
             Scoreboard board = viewer.getScoreboard();
             if (board == Bukkit.getScoreboardManager().getMainScoreboard()) {
@@ -973,7 +964,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                     return true;
                 }
                 if (args[0].equalsIgnoreCase("set") && args.length == 2) {
-                    if (spawnLocation != null && p.getLocation().distanceSquared(spawnLocation) < 40000) { // 200 blocs
+                    if (spawnLocation != null && p.getLocation().distanceSquared(spawnLocation) < 40000) {
                         p.sendMessage(getMsg(p, "too_close_spawn"));
                         return true;
                     }
@@ -1252,7 +1243,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                 if (currentTeam == null) { p.sendMessage(getMsg(p, "team_not_in")); return; }
                 TeamData t = teams.get(currentTeam);
                 if (!t.creator.equals(uuid)) { p.sendMessage("§cOnly the creator can do this."); return; }
-                if (spawnLocation != null && p.getLocation().distanceSquared(spawnLocation) < 40000) { // 200 blocs
+                if (spawnLocation != null && p.getLocation().distanceSquared(spawnLocation) < 40000) {
                     p.sendMessage(getMsg(p, "too_close_spawn"));
                     return;
                 }
