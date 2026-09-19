@@ -24,6 +24,7 @@ import org.bukkit.event.block.Action;
 import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.enchantment.EnchantItemEvent;
+import org.bukkit.event.entity.CreatureSpawnEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.EntityExplodeEvent;
@@ -488,7 +489,8 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
     public void onFoodLevelChange(FoodLevelChangeEvent e) {
         if (e.getEntity() instanceof Player) {
             Player p = (Player) e.getEntity();
-            if (spawnProtected.getOrDefault(p.getUniqueId(), false)) {
+            // Pas de perte de nourriture si le joueur a le spawn protect ou s'il se trouve dans la région spawn
+            if (spawnProtected.getOrDefault(p.getUniqueId(), false) || isInSpawnRegion(p)) {
                 e.setCancelled(true);
                 p.setFoodLevel(20);
             }
@@ -509,7 +511,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
     public void onBlockBreak(BlockBreakEvent e) {
         Player p = e.getPlayer();
         if (p.isOp()) return;
-        if (isInSpawnRegion(p) || (spawnLocation != null && p.getLocation().distanceSquared(spawnLocation) <= 2500)) {
+        if (isInSpawnOrWarzone(p)) {
             e.setCancelled(true);
         }
     }
@@ -518,9 +520,24 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
     public void onBlockPlace(BlockPlaceEvent e) {
         Player p = e.getPlayer();
         if (p.isOp()) return;
-        if (isInSpawnRegion(p) || (spawnLocation != null && p.getLocation().distanceSquared(spawnLocation) <= 2500)) {
+        if (isInSpawnOrWarzone(p)) {
             e.setCancelled(true);
         }
+    }
+
+    @EventHandler
+    public void onCreatureSpawn(CreatureSpawnEvent e) {
+        try {
+            Location loc = e.getLocation();
+            ApplicableRegionSet set = WGBukkit.getRegionManager(loc.getWorld()).getApplicableRegions(loc);
+            for (ProtectedRegion region : set) {
+                String id = region.getId().toLowerCase();
+                if (id.equals("spawn") || id.equals("warzone")) {
+                    e.setCancelled(true);
+                    return;
+                }
+            }
+        } catch (Exception ignored) {}
     }
 
     @EventHandler
@@ -1270,6 +1287,19 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
             ApplicableRegionSet set = WGBukkit.getRegionManager(p.getWorld()).getApplicableRegions(p.getLocation());
             for (ProtectedRegion region : set) {
                 if (region.getId().equalsIgnoreCase("spawn")) {
+                    return true;
+                }
+            }
+        } catch (Exception ignored) {}
+        return false;
+    }
+
+    private boolean isInSpawnOrWarzone(Player p) {
+        try {
+            ApplicableRegionSet set = WGBukkit.getRegionManager(p.getWorld()).getApplicableRegions(p.getLocation());
+            for (ProtectedRegion region : set) {
+                String id = region.getId().toLowerCase();
+                if (id.equals("spawn") || id.equals("warzone")) {
                     return true;
                 }
             }
