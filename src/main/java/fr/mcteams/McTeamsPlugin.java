@@ -447,6 +447,8 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
             if (spawnLocation != null) {
                 p.spigot().respawn();
                 p.teleport(spawnLocation);
+                p.setFoodLevel(20);
+                p.setSaturation(20f);
                 p.sendMessage(getMsg(p, "death_respawn"));
             }
         }, 2L);
@@ -457,10 +459,11 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         if (e.getEntity() instanceof Player) {
             Player p = (Player) e.getEntity();
             
-            // Si le joueur a la protection du spawn, la faim est TOTALEMENT bloquée à 20
+            // Bloque totalement la perte de faim si le joueur a la protection ou est dans le spawn
             if (spawnProtected.getOrDefault(p.getUniqueId(), false) || isInSpawnRegion(p)) {
                 e.setCancelled(true);
                 p.setFoodLevel(20);
+                p.setSaturation(20f);
                 return;
             }
             
@@ -477,7 +480,6 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
     public void onEntityDamage(EntityDamageEvent e) {
         if (e.getEntity() instanceof Player) {
             Player p = (Player) e.getEntity();
-            // Annule complètement les dégâts (chute, feu, monstres) sous protection
             if (spawnProtected.getOrDefault(p.getUniqueId(), false) && e.getCause() != EntityDamageEvent.DamageCause.VOID) {
                 e.setCancelled(true);
             }
@@ -533,13 +535,11 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         }
         
         if (attacker != null && attacker != victim) {
-            // Anti-PvP lié à la protection de Spawn (pour la cible)
             if (spawnProtected.getOrDefault(victim.getUniqueId(), false)) {
                 e.setCancelled(true);
                 attacker.sendMessage("§cCe joueur a la protection du spawn !");
                 return;
             }
-            // Anti-PvP lié à la protection de Spawn (pour l'attaquant)
             if (spawnProtected.getOrDefault(attacker.getUniqueId(), false)) {
                 e.setCancelled(true);
                 attacker.sendMessage("§cTu ne peux pas attaquer tant que tu as la protection du spawn !");
@@ -599,8 +599,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         return true;
     }
 
-    // Le chat manuel annule tout événement de Bukkit/Spigot pour écrire nous-mêmes le format parfait 
-    // Format garanti : [Clan] Couleur Pseudo > Message (Chevron en blanc, Message en blanc)
+    // Gestion du chat isolée : Nettoie proprement le pseudo et force le blanc sur le chevron et le message
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onChat(AsyncPlayerChatEvent e) {
         e.setCancelled(true);
@@ -611,8 +610,8 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         
         String clanTag = (clan != null && !clan.isEmpty()) ? "§f[§6" + clan + "§f] " : "";
         
-        // §f pour remettre le chevron et le message en blanc pur !
-        String finalMessage = clanTag + colorCode + p.getName() + "§f" + "> " + e.getMessage();
+        // Construction stricte : Clan + Grade + Pseudo + Réinitialisation en §f pour le chevron '>' et le message
+        String finalMessage = clanTag + colorCode + p.getName() + "§f > " + e.getMessage();
         
         for (Player online : Bukkit.getOnlinePlayers()) {
             online.sendMessage(finalMessage);
@@ -676,6 +675,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                 t = board.registerNewTeam(teamName);
             }
             
+            // On applique uniquement sur la liste des tabs / overhead pour ne pas corrompre le chat
             t.setPrefix(fullPrefix);
             t.setSuffix("");
             if (!t.hasEntry(p.getName())) {
@@ -723,6 +723,10 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
             UUID uuid = p.getUniqueId();
             
             if (spawnProtected.getOrDefault(uuid, false)) {
+                // Bloque la faim en permanence tant que la protection est active
+                p.setFoodLevel(20);
+                p.setSaturation(20f);
+
                 if (!isInSpawnRegion(p)) {
                     spawnProtected.put(uuid, false);
                     p.sendMessage("§6You left the spawn zone and lost your §cprotection§6!");
@@ -1171,6 +1175,8 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
             p.teleport(targetLoc);
             if (giveSpawnProtection) {
                 spawnProtected.put(p.getUniqueId(), true);
+                p.setFoodLevel(20);
+                p.setSaturation(20f);
                 p.sendMessage(getMsg(p, "spawn_protected_msg"));
             } else {
                 p.sendMessage(getMsg(p, "tp_success"));
@@ -1217,6 +1223,8 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                     p.teleport(targetLoc);
                     if (giveSpawnProtection) {
                         spawnProtected.put(p.getUniqueId(), true);
+                        p.setFoodLevel(20);
+                        p.setSaturation(20f);
                         p.sendMessage(getMsg(p, "spawn_protected_msg"));
                     } else {
                         p.sendMessage(getMsg(p, "tp_success"));
