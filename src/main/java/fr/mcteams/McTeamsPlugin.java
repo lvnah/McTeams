@@ -609,10 +609,10 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         String colorCode = getRankColorCode(rank);
         String clan = playerTeam.get(p.getUniqueId());
         
-        String clanTag = (clan != null && !clan.isEmpty()) ? "§f[" + clan + "] " : "";
+        String clanTag = (clan != null && !clan.isEmpty()) ? "§f[§6" + clan + "§f] " : "";
         
         // §f pour remettre le chevron et le message en blanc pur !
-        String finalMessage = clanTag + colorCode + p.getName() + " §f> " + e.getMessage();
+        String finalMessage = clanTag + colorCode + p.getName() + "§f" + "> " + e.getMessage();
         
         for (Player online : Bukkit.getOnlinePlayers()) {
             online.sendMessage(finalMessage);
@@ -642,7 +642,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         String colorCode = getRankColorCode(rank);
         String clan = playerTeam.get(p.getUniqueId());
         
-        String clanTag = (clan != null && !clan.isEmpty()) ? "§f[" + clan + "] " : "";
+        String clanTag = (clan != null && !clan.isEmpty()) ? "§f[§6" + clan + "§f] " : "";
         String fullPrefix = clanTag + colorCode;
         
         if (fullPrefix.length() > 16) {
