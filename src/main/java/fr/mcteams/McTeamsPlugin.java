@@ -94,10 +94,15 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
             playerRanks.putIfAbsent(p.getUniqueId(), "default");
         }
         
-        // Rafraîchit les grades et tablists après le chargement des données au démarrage
-        Bukkit.getScheduler().runTaskLater(this, this::updateAllVisuals, 10L);
+        // Sécurité WindSpigot : Initialisation différée des grades/scoreboards au reload/restart
+        Bukkit.getScheduler().runTaskLater(this, () -> {
+            for (Player p : Bukkit.getOnlinePlayers()) {
+                updatePlayerVisuals(p);
+            }
+        }, 30L);
+
         Bukkit.getScheduler().runTaskTimer(this, this::updateScoreboards, 0L, 20L);
-        getLogger().info("McTeams enabled and loaded successfully!");
+        getLogger().info("McTeams (WindSpigot Optimized) enabled successfully!");
     }
 
     @Override
@@ -350,7 +355,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
             p.getInventory().addItem(fishingRod, book);
         }
 
-        updateAllVisuals();
+        updatePlayerVisuals(p);
 
         for (int i = 0; i < 200; i++) {
             p.sendMessage("");
@@ -460,7 +465,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         if (e.getEntity() instanceof Player) {
             Player p = (Player) e.getEntity();
             
-            // Si le joueur a la spawn protection, faim bloquée à fond
+            // Spawn protection activée : faim totalement bloquée à fond
             if (spawnProtected.getOrDefault(p.getUniqueId(), false) || isInSpawnRegion(p)) {
                 e.setCancelled(true);
                 p.setFoodLevel(20);
@@ -468,10 +473,10 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                 return;
             }
             
-            // Sans protection : perte lente (1 chance sur 6 de perdre un point de faim -> équivalent faim très douce)
+            // Hors spawn : Perte très douce et équilibrée (1 chance sur 8 d'accepter la perte de faim)
             int currentFood = p.getFoodLevel();
             if (e.getFoodLevel() < currentFood) {
-                if (new Random().nextInt(6) != 0) {
+                if (new Random().nextInt(8) != 0) {
                     e.setCancelled(true);
                 }
             }
@@ -601,7 +606,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         return true;
     }
 
-    // Chat 100% custom et isolé : aucune équipe ni interférence de couleur extérieure
+    // Chat 100% indépendant sous WindSpigot : immunisé contre la fuite de couleur rouge
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onChat(AsyncPlayerChatEvent e) {
         e.setCancelled(true);
@@ -612,7 +617,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         
         String clanTag = (clan != null && !clan.isEmpty()) ? "§f[§6" + clan + "§f] " : "";
         
-        // Format strict : [Clan] + CouleurGrade + Pseudo + §f > + Message en blanc pur
+        // Reconstruction stricte : [Clan] + CouleurGrade + Pseudo + §f > + Message en blanc pur
         String finalMessage = clanTag + colorCode + p.getName() + "§f > " + e.getMessage();
         
         for (Player online : Bukkit.getOnlinePlayers()) {
@@ -629,12 +634,6 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
             case "helper": return "§e";
             case "vip": return "§6";
             default: return "§f";
-        }
-    }
-
-    private void updateAllVisuals() {
-        for (Player online : Bukkit.getOnlinePlayers()) {
-            updatePlayerVisuals(online);
         }
     }
 
@@ -663,7 +662,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                 viewer.setScoreboard(board);
             }
             
-            String teamName = p.getName();
+            String teamName = "r_" + p.getName();
             if (teamName.length() > 16) {
                 teamName = teamName.substring(0, 16);
             }
@@ -673,7 +672,6 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                 t = board.registerNewTeam(teamName);
             }
             
-            // On limite strictement le préfixe à 16 caractères max pour le scoreboard (visuel au-dessus de la tête)
             String scorePrefix = fullPrefix;
             if (scorePrefix.length() > 16) {
                 scorePrefix = scorePrefix.substring(0, 16);
@@ -1274,7 +1272,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                 teams.put(teamName, newTeam);
                 playerTeam.put(uuid, teamName);
                 saveData();
-                updateAllVisuals();
+                updatePlayerVisuals(p);
                 p.sendMessage(getMsg(p, "team_created", teamName));
                 break;
 
@@ -1327,13 +1325,13 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                     teams.remove(currentTeam);
                     playerTeam.remove(uuid);
                     saveData();
-                    updateAllVisuals();
+                    updatePlayerVisuals(p);
                     p.sendMessage("§6You dissolved your team.");
                 } else {
                     lTeam.members.remove(p.getName());
                     playerTeam.remove(uuid);
                     saveData();
-                    updateAllVisuals();
+                    updatePlayerVisuals(p);
                     p.sendMessage("§6You left your team.");
                 }
                 break;
@@ -1358,7 +1356,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                 Player targetPlayer = Bukkit.getPlayer(targetName);
                 if (targetPlayer != null) {
                     playerTeam.remove(targetPlayer.getUniqueId());
-                    updateAllVisuals();
+                    updatePlayerVisuals(targetPlayer);
                     targetPlayer.sendMessage("§cYou have been kicked from the team.");
                 }
                 saveData();
