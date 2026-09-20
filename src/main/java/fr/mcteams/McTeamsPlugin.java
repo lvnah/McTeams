@@ -94,7 +94,8 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
             playerRanks.putIfAbsent(p.getUniqueId(), "default");
         }
         
-        updateAllVisuals();
+        // Rafraîchit les grades et tablists après le chargement des données au démarrage
+        Bukkit.getScheduler().runTaskLater(this, this::updateAllVisuals, 10L);
         Bukkit.getScheduler().runTaskTimer(this, this::updateScoreboards, 0L, 20L);
         getLogger().info("McTeams enabled and loaded successfully!");
     }
@@ -459,7 +460,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         if (e.getEntity() instanceof Player) {
             Player p = (Player) e.getEntity();
             
-            // Bloque totalement la perte de faim si le joueur a la protection ou est dans le spawn
+            // Si le joueur a la spawn protection, faim bloquée à fond
             if (spawnProtected.getOrDefault(p.getUniqueId(), false) || isInSpawnRegion(p)) {
                 e.setCancelled(true);
                 p.setFoodLevel(20);
@@ -467,9 +468,10 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                 return;
             }
             
+            // Sans protection : perte lente (1 chance sur 6 de perdre un point de faim -> équivalent faim très douce)
             int currentFood = p.getFoodLevel();
             if (e.getFoodLevel() < currentFood) {
-                if (new Random().nextInt(4) != 0) {
+                if (new Random().nextInt(6) != 0) {
                     e.setCancelled(true);
                 }
             }
@@ -599,7 +601,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         return true;
     }
 
-    // Gestion du chat isolée : Nettoie proprement le pseudo et force le blanc sur le chevron et le message
+    // Chat 100% custom et isolé : aucune équipe ni interférence de couleur extérieure
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onChat(AsyncPlayerChatEvent e) {
         e.setCancelled(true);
@@ -610,7 +612,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         
         String clanTag = (clan != null && !clan.isEmpty()) ? "§f[§6" + clan + "§f] " : "";
         
-        // Construction stricte : Clan + Grade + Pseudo + Réinitialisation en §f pour le chevron '>' et le message
+        // Format strict : [Clan] + CouleurGrade + Pseudo + §f > + Message en blanc pur
         String finalMessage = clanTag + colorCode + p.getName() + "§f > " + e.getMessage();
         
         for (Player online : Bukkit.getOnlinePlayers()) {
@@ -644,10 +646,6 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         String clanTag = (clan != null && !clan.isEmpty()) ? "§f[§6" + clan + "§f] " : "";
         String fullPrefix = clanTag + colorCode;
         
-        if (fullPrefix.length() > 16) {
-            fullPrefix = fullPrefix.substring(0, 16);
-        }
-        
         p.setDisplayName(fullPrefix + p.getName());
         p.setCustomName(fullPrefix + p.getName());
         p.setCustomNameVisible(true);
@@ -675,8 +673,13 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                 t = board.registerNewTeam(teamName);
             }
             
-            // On applique uniquement sur la liste des tabs / overhead pour ne pas corrompre le chat
-            t.setPrefix(fullPrefix);
+            // On limite strictement le préfixe à 16 caractères max pour le scoreboard (visuel au-dessus de la tête)
+            String scorePrefix = fullPrefix;
+            if (scorePrefix.length() > 16) {
+                scorePrefix = scorePrefix.substring(0, 16);
+            }
+            
+            t.setPrefix(scorePrefix);
             t.setSuffix("");
             if (!t.hasEntry(p.getName())) {
                 t.addEntry(p.getName());
@@ -723,7 +726,6 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
             UUID uuid = p.getUniqueId();
             
             if (spawnProtected.getOrDefault(uuid, false)) {
-                // Bloque la faim en permanence tant que la protection est active
                 p.setFoodLevel(20);
                 p.setSaturation(20f);
 
