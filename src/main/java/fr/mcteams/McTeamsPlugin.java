@@ -57,11 +57,15 @@ import java.util.*;
 public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listener {
 
     private Location spawnLocation;
-    private final Map<UUID, Map<String, Location>> playerHomes = new HashMap<>();
-    private final Map<UUID, Double> balances = new HashMap<>();
+    
+    // PERSISTENT DATA : Basé sur le pseudo (String) pour éviter les pertes d'UUID sur les serveurs offline/1.8.8
+    private final Map<String, Map<String, Location>> playerHomes = new HashMap<>();
+    private final Map<String, Double> balances = new HashMap<>();
     private final Map<String, TeamData> teams = new HashMap<>();
-    private final Map<UUID, String> playerTeam = new HashMap<>();
-    private final Map<UUID, String> playerRanks = new HashMap<>();
+    private final Map<String, String> playerTeam = new HashMap<>();
+    private final Map<String, String> playerRanks = new HashMap<>();
+    
+    // TEMPORARY DATA : Basé sur l'UUID (valide uniquement pour la session en cours)
     private final Map<UUID, Long> combatTag = new HashMap<>();
     private final Map<UUID, String> activeTeleports = new HashMap<>();
     private final Map<UUID, Boolean> spawnProtected = new HashMap<>();
@@ -72,8 +76,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
 
     @Override
     public void onEnable() {
-        getConfig().options().copyDefaults(true);
-        saveConfig();
+        saveDefaultConfig();
         loadData();
 
         for (World world : Bukkit.getWorlds()) {
@@ -90,11 +93,11 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         getServer().getPluginManager().registerEvents(this, this);
         
         for (Player p : Bukkit.getOnlinePlayers()) {
+            String pName = p.getName().toLowerCase();
             spawnProtected.putIfAbsent(p.getUniqueId(), true);
-            playerRanks.putIfAbsent(p.getUniqueId(), "default");
+            playerRanks.putIfAbsent(pName, "default");
         }
         
-        // Restauration complète et sécurisée des ranks/teams pour WindSpigot au démarrage
         Bukkit.getScheduler().runTaskLater(this, () -> {
             for (Player p : Bukkit.getOnlinePlayers()) {
                 updatePlayerVisuals(p);
@@ -102,7 +105,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         }, 20L);
 
         Bukkit.getScheduler().runTaskTimer(this, this::updateScoreboards, 0L, 20L);
-        getLogger().info("McTeams (WindSpigot Optimized - English) enabled successfully!");
+        getLogger().info("McTeams (WindSpigot Optimized - Name Based) enabled successfully!");
     }
 
     @Override
@@ -187,19 +190,19 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         getConfig().set("spawn", serializeLocation(spawnLocation));
 
         getConfig().set("balances", null);
-        for (Map.Entry<UUID, Double> entry : balances.entrySet()) {
-            getConfig().set("balances." + entry.getKey().toString(), entry.getValue());
+        for (Map.Entry<String, Double> entry : balances.entrySet()) {
+            getConfig().set("balances." + entry.getKey(), entry.getValue());
         }
 
         getConfig().set("ranks", null);
-        for (Map.Entry<UUID, String> entry : playerRanks.entrySet()) {
-            getConfig().set("ranks." + entry.getKey().toString(), entry.getValue());
+        for (Map.Entry<String, String> entry : playerRanks.entrySet()) {
+            getConfig().set("ranks." + entry.getKey(), entry.getValue());
         }
 
         getConfig().set("homes", null);
-        for (Map.Entry<UUID, Map<String, Location>> entry : playerHomes.entrySet()) {
+        for (Map.Entry<String, Map<String, Location>> entry : playerHomes.entrySet()) {
             for (Map.Entry<String, Location> home : entry.getValue().entrySet()) {
-                getConfig().set("homes." + entry.getKey().toString() + "." + home.getKey(), serializeLocation(home.getValue()));
+                getConfig().set("homes." + entry.getKey() + "." + home.getKey(), serializeLocation(home.getValue()));
             }
         }
 
@@ -207,7 +210,6 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         for (Map.Entry<String, TeamData> entry : teams.entrySet()) {
             String path = "teams." + entry.getKey();
             TeamData t = entry.getValue();
-            getConfig().set(path + ".creator", t.creator.toString());
             getConfig().set(path + ".creatorName", t.creatorName);
             getConfig().set(path + ".members", t.members);
             getConfig().set(path + ".hq", serializeLocation(t.hq));
@@ -222,30 +224,29 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         ConfigurationSection balSec = getConfig().getConfigurationSection("balances");
         if (balSec != null) {
             for (String key : balSec.getKeys(false)) {
-                balances.put(UUID.fromString(key), balSec.getDouble(key));
+                balances.put(key, balSec.getDouble(key));
             }
         }
 
         ConfigurationSection rankSec = getConfig().getConfigurationSection("ranks");
         if (rankSec != null) {
             for (String key : rankSec.getKeys(false)) {
-                playerRanks.put(UUID.fromString(key), rankSec.getString(key));
+                playerRanks.put(key, rankSec.getString(key));
             }
         }
 
         ConfigurationSection homeSec = getConfig().getConfigurationSection("homes");
         if (homeSec != null) {
-            for (String uuidStr : homeSec.getKeys(false)) {
-                UUID uuid = UUID.fromString(uuidStr);
+            for (String playerName : homeSec.getKeys(false)) {
                 Map<String, Location> homes = new HashMap<>();
-                ConfigurationSection playerHomeSec = homeSec.getConfigurationSection(uuidStr);
+                ConfigurationSection playerHomeSec = homeSec.getConfigurationSection(playerName);
                 if (playerHomeSec != null) {
                     for (String homeName : playerHomeSec.getKeys(false)) {
                         Location loc = deserializeLocation(playerHomeSec.getString(homeName));
                         if (loc != null) homes.put(homeName, loc);
                     }
                 }
-                playerHomes.put(uuid, homes);
+                playerHomes.put(playerName, homes);
             }
         }
 
@@ -253,31 +254,18 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         if (teamSec != null) {
             for (String teamName : teamSec.getKeys(false)) {
                 String path = "teams." + teamName;
-                String creatorStr = getConfig().getString(path + ".creator");
-                if (creatorStr == null) continue;
-                UUID creator = UUID.fromString(creatorStr);
                 String creatorName = getConfig().getString(path + ".creatorName");
+                if (creatorName == null) continue;
                 List<String> members = getConfig().getStringList(path + ".members");
                 Location hq = deserializeLocation(getConfig().getString(path + ".hq"));
 
-                TeamData t = new TeamData(teamName, creatorName, creator);
+                TeamData t = new TeamData(teamName, creatorName);
                 t.members = members;
                 t.hq = hq;
                 teams.put(teamName, t);
 
-                playerTeam.put(creator, teamName);
                 for (String mName : members) {
-                    Player mPlayer = Bukkit.getPlayer(mName);
-                    if (mPlayer != null) {
-                        playerTeam.put(mPlayer.getUniqueId(), teamName);
-                    } else {
-                        // Bind even if offline via exact name matching lookup if needed
-                        for (OfflinePlayer op : Bukkit.getOfflinePlayers()) {
-                            if (op.getName() != null && op.getName().equalsIgnoreCase(mName)) {
-                                playerTeam.put(op.getUniqueId(), teamName);
-                            }
-                        }
-                    }
+                    playerTeam.put(mName.toLowerCase(), teamName);
                 }
             }
         }
@@ -287,17 +275,10 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
     public void onJoin(PlayerJoinEvent e) {
         e.setJoinMessage(null);
         Player p = e.getPlayer();
-        playerRanks.putIfAbsent(p.getUniqueId(), "default");
+        String pName = p.getName().toLowerCase();
         
+        playerRanks.putIfAbsent(pName, "default");
         spawnProtected.put(p.getUniqueId(), true); 
-
-        // Check if player is part of any loaded team and bind UUID
-        for (Map.Entry<String, TeamData> entry : teams.entrySet()) {
-            TeamData t = entry.getValue();
-            if (t.members.contains(p.getName()) || t.creator.equals(p.getUniqueId())) {
-                playerTeam.put(p.getUniqueId(), entry.getKey());
-            }
-        }
 
         if (!p.hasPlayedBefore()) {
             if (spawnLocation != null) {
@@ -565,24 +546,24 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         return true;
     }
 
-    // Chat 100% customisé & protégé : force le message en blanc pur §f sans fuite de couleur
+    // CHAT SYSTEM FIX: Uses Native Bukkit Format to completely prevent color bleeding
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onChat(AsyncPlayerChatEvent e) {
-        e.setCancelled(true);
         Player p = e.getPlayer();
-        String rank = playerRanks.getOrDefault(p.getUniqueId(), "default");
+        String pName = p.getName().toLowerCase();
+        
+        String rank = playerRanks.getOrDefault(pName, "default");
         String colorCode = getRankColorCode(rank);
-        String clan = playerTeam.get(p.getUniqueId());
+        String clan = playerTeam.get(pName);
         
         String clanTag = (clan != null && !clan.isEmpty()) ? "§f[§6" + clan + "§f] " : "";
         
-        // Strict format: [Clan] + RankColor + Name + §f > + Message strictly in white
-        String finalMessage = clanTag + colorCode + p.getName() + "§f > §f" + e.getMessage();
+        // Strip colors from the actual message to prevent player using custom codes
+        String cleanMessage = ChatColor.stripColor(e.getMessage());
+        e.setMessage(cleanMessage);
         
-        for (Player online : Bukkit.getOnlinePlayers()) {
-            online.sendMessage(finalMessage);
-        }
-        Bukkit.getConsoleSender().sendMessage(finalMessage);
+        // Use standard Bukkit formatting (%1$s = name, %2$s = message)
+        e.setFormat(clanTag + colorCode + "%1$s§f > §f%2$s");
     }    
 
     private String getRankColorCode(String rank) {
@@ -597,9 +578,10 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
     }
 
     private void updatePlayerVisuals(Player p) {
-        String rank = playerRanks.getOrDefault(p.getUniqueId(), "default");
+        String pName = p.getName().toLowerCase();
+        String rank = playerRanks.getOrDefault(pName, "default");
         String colorCode = getRankColorCode(rank);
-        String clan = playerTeam.get(p.getUniqueId());
+        String clan = playerTeam.get(pName);
         
         String clanTag = (clan != null && !clan.isEmpty()) ? "§f[§6" + clan + "§f] " : "";
         String fullPrefix = clanTag + colorCode;
@@ -681,6 +663,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
     private void updateScoreboards() {
         for (Player p : Bukkit.getOnlinePlayers()) {
             UUID uuid = p.getUniqueId();
+            String pName = p.getName().toLowerCase();
             
             if (spawnProtected.getOrDefault(uuid, false)) {
                 p.setFoodLevel(20);
@@ -703,11 +686,11 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
             Map<String, Integer> currentLines = new LinkedHashMap<>();
             currentLines.put("§m---------------------", 7);
             
-            String tName = playerTeam.getOrDefault(uuid, "None");
+            String tName = playerTeam.getOrDefault(pName, "None");
             if(tName.length() > 10) tName = tName.substring(0, 10) + "..";
             currentLines.put("§6Team: §f" + tName, 6);
             
-            currentLines.put("§6Balance: §f" + df.format(balances.getOrDefault(uuid, 0.0)), 5);
+            currentLines.put("§6Balance: §f" + df.format(balances.getOrDefault(pName, 0.0)), 5);
             
             boolean isProtected = spawnProtected.getOrDefault(uuid, false);
             currentLines.put("§6Spawn protection: " + (isProtected ? "§aEnable" : "§cDisable"), 4);
@@ -762,14 +745,12 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
     class TeamData {
         String name;
         String creatorName;
-        UUID creator;
         List<String> members = new ArrayList<>();
         Location hq;
         
-        public TeamData(String name, String creatorName, UUID creator) {
+        public TeamData(String name, String creatorName) {
             this.name = name;
             this.creatorName = creatorName;
-            this.creator = creator;
             this.members.add(creatorName);
         }
     }
@@ -794,6 +775,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (!(sender instanceof Player)) return true;
         Player p = (Player) sender;
+        String pName = p.getName().toLowerCase();
         UUID uuid = p.getUniqueId();
 
         String cmdName = command.getName().toLowerCase();
@@ -814,7 +796,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                 break;
 
             case "clearchat":
-                String rank = playerRanks.getOrDefault(uuid, "default");
+                String rank = playerRanks.getOrDefault(pName, "default");
                 String color = getRankColorCode(rank);
                 String clearMsg = "§fChat clear by " + color + p.getName();
                 for (Player online : Bukkit.getOnlinePlayers()) {
@@ -826,7 +808,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                 break;
 
             case "mod":
-                String pRank = playerRanks.getOrDefault(uuid, "default").toLowerCase();
+                String pRank = playerRanks.getOrDefault(pName, "default").toLowerCase();
                 if (!p.isOp() && !pRank.equals("mod") && !pRank.equals("moderator") && !pRank.equals("owner")) {
                     p.sendMessage("§cYou do not have permission to use /mod.");
                     return true;
@@ -877,7 +859,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                 if (p.isOp()) {
                     startTeleportation(p, spawnLocation, "Spawn", 0, true, 0.0);
                 } else {
-                    double currentBal = balances.getOrDefault(uuid, 0.0);
+                    double currentBal = balances.getOrDefault(pName, 0.0);
                     if (currentBal < 3.0) {
                         p.sendMessage(getMsg("spawn_no_gold"));
                         return true;
@@ -905,7 +887,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                     p.sendMessage("§cValid ranks: default, vip, helper, elite, mod, owner");
                     return true;
                 }
-                playerRanks.put(target.getUniqueId(), newRank);
+                playerRanks.put(target.getName().toLowerCase(), newRank);
                 saveData();
                 updatePlayerVisuals(target);
                 p.sendMessage(getMsg("rank_updated", target.getName(), newRank));
@@ -917,7 +899,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                     p.sendMessage(getMsg("in_combat_tp"));
                     return true;
                 }
-                Map<String, Location> homes = playerHomes.computeIfAbsent(uuid, k -> new HashMap<>());
+                Map<String, Location> homes = playerHomes.computeIfAbsent(pName, k -> new HashMap<>());
                 if (args.length == 0 || args[0].equalsIgnoreCase("list")) {
                     p.sendMessage("§6--- Your /go points ---");
                     p.sendMessage("§6/go set [name] §f- Define a go point");
@@ -945,7 +927,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                         return true;
                     }
 
-                    String rankCheck = playerRanks.getOrDefault(uuid, "default").toLowerCase();
+                    String rankCheck = playerRanks.getOrDefault(pName, "default").toLowerCase();
                     int maxHomes = 1;
                     if (rankCheck.equals("vip")) {
                         maxHomes = 2;
@@ -981,10 +963,11 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
             case "team":
                 if (args.length == 0) {
                     p.sendMessage("§6TEAMS §f! §6/team create [name] §f! §6Create team");
+                    p.sendMessage("§6TEAMS §f! §6/team disband §f! §6Disband team (Creator)");
                     p.sendMessage("§6TEAMS §f! §6/team sethq §f! §6Set team HQ");
                     p.sendMessage("§6TEAMS §f! §6/team hq §f! §6Teleport to HQ");
                     p.sendMessage("§6TEAMS §f! §6/team info [name] §f! §6Team info");
-                    p.sendMessage("§6TEAMS §f! §6/team leave §f! §6Leave team");
+                    p.sendMessage("§6TEAMS §f! §6/team leave §f! §6Leave team (Members)");
                     p.sendMessage("§6TEAMS §f! §6/team kick [player] §f! §6Kick player");
                     return true;
                 }
@@ -1001,7 +984,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                     }
                 }
                 if (goldCount > 0) {
-                    String rankD = playerRanks.getOrDefault(uuid, "default").toLowerCase();
+                    String rankD = playerRanks.getOrDefault(pName, "default").toLowerCase();
                     double multiplier = 1.0;
                     if (rankD.equals("vip")) {
                         multiplier = 1.2;
@@ -1010,10 +993,10 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                     }
 
                     double addedGold = goldCount * multiplier;
-                    double currentBalance = balances.getOrDefault(uuid, 0.0);
-                    balances.put(uuid, currentBalance + addedGold);
+                    double currentBalance = balances.getOrDefault(pName, 0.0);
+                    balances.put(pName, currentBalance + addedGold);
                     saveData();
-                    p.sendMessage(getMsg("deposit_success", goldCount, df.format(balances.get(uuid))));
+                    p.sendMessage(getMsg("deposit_success", goldCount, df.format(balances.get(pName))));
                 } else {
                     p.sendMessage(getMsg("deposit_empty"));
                 }
@@ -1021,7 +1004,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
 
             case "balance":
             case "bal":
-                p.sendMessage(getMsg("balance_msg", df.format(balances.getOrDefault(uuid, 0.0))));
+                p.sendMessage(getMsg("balance_msg", df.format(balances.getOrDefault(pName, 0.0))));
                 break;
 
             case "sell":
@@ -1079,11 +1062,13 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                     }
 
                     double totalPrice = toBuy.price * buyQty;
-                    double buyerBalance = balances.getOrDefault(uuid, 0.0);
+                    double buyerBalance = balances.getOrDefault(pName, 0.0);
 
                     if (buyerBalance >= totalPrice) {
-                        balances.put(uuid, buyerBalance - totalPrice);
-                        balances.put(toBuy.sellerUuid, balances.getOrDefault(toBuy.sellerUuid, 0.0) + totalPrice);
+                        balances.put(pName, buyerBalance - totalPrice);
+                        
+                        String sellerName = toBuy.seller.toLowerCase();
+                        balances.put(sellerName, balances.getOrDefault(sellerName, 0.0) + totalPrice);
                         saveData();
                         
                         ItemStack purchasedItem = toBuy.item.clone();
@@ -1109,10 +1094,12 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
     }
 
     private void startTeleportation(Player p, Location targetLoc, String name, int delaySeconds, boolean giveSpawnProtection, double cost) {
+        String pName = p.getName().toLowerCase();
+        
         if (delaySeconds <= 0) {
             if (cost > 0) {
-                double currentBal = balances.getOrDefault(p.getUniqueId(), 0.0);
-                balances.put(p.getUniqueId(), currentBal - cost);
+                double currentBal = balances.getOrDefault(pName, 0.0);
+                balances.put(pName, currentBal - cost);
                 saveData();
             }
             p.teleport(targetLoc);
@@ -1153,14 +1140,14 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                 }
                 if (countdown <= 0) {
                     if (cost > 0) {
-                        double currentBal = balances.getOrDefault(p.getUniqueId(), 0.0);
+                        double currentBal = balances.getOrDefault(pName, 0.0);
                         if (currentBal < cost) {
                             p.sendMessage(getMsg("spawn_no_gold"));
                             activeTeleports.remove(p.getUniqueId());
                             cancel();
                             return;
                         }
-                        balances.put(p.getUniqueId(), currentBal - cost);
+                        balances.put(pName, currentBal - cost);
                         saveData();
                     }
                     p.teleport(targetLoc);
@@ -1185,8 +1172,8 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
 
     private void handleTeamCommand(Player p, String[] args) {
         String action = args[0].toLowerCase();
-        UUID uuid = p.getUniqueId();
-        String currentTeam = playerTeam.get(uuid);
+        String pName = p.getName().toLowerCase();
+        String currentTeam = playerTeam.get(pName);
 
         switch (action) {
             case "create":
@@ -1211,9 +1198,9 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                     return; 
                 }
                 
-                TeamData newTeam = new TeamData(teamName, p.getName(), uuid);
+                TeamData newTeam = new TeamData(teamName, p.getName());
                 teams.put(teamName, newTeam);
-                playerTeam.put(uuid, teamName);
+                playerTeam.put(pName, teamName);
                 saveData();
                 updatePlayerVisuals(p);
                 p.sendMessage(getMsg("team_created", teamName));
@@ -1222,7 +1209,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
             case "sethq":
                 if (currentTeam == null) { p.sendMessage(getMsg("team_not_in")); return; }
                 TeamData t = teams.get(currentTeam);
-                if (!t.creator.equals(uuid)) { p.sendMessage("§cOnly the creator can do this."); return; }
+                if (!t.creatorName.equalsIgnoreCase(p.getName())) { p.sendMessage("§cOnly the creator can do this."); return; }
                 if (spawnLocation != null && p.getLocation().distanceSquared(spawnLocation) < 40000) {
                     p.sendMessage(getMsg("too_close_spawn"));
                     return;
@@ -1257,32 +1244,44 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                 p.sendMessage("§6Members (" + infoTeam.members.size() + "): §f" + String.join(", ", infoTeam.members));
                 break;
                 
+            case "disband":
+                if (currentTeam == null) { p.sendMessage(getMsg("team_not_in")); return; }
+                TeamData dTeam = teams.get(currentTeam);
+                if (!dTeam.creatorName.equalsIgnoreCase(p.getName())) {
+                    p.sendMessage("§cOnly the creator can disband the team.");
+                    return;
+                }
+                teams.remove(currentTeam);
+                for(String member : dTeam.members) {
+                    playerTeam.remove(member.toLowerCase());
+                    Player mPlayer = Bukkit.getPlayer(member);
+                    if(mPlayer != null) {
+                        updatePlayerVisuals(mPlayer);
+                        if(mPlayer != p) mPlayer.sendMessage("§cYour team has been disbanded by the creator.");
+                    }
+                }
+                saveData();
+                p.sendMessage("§6Team disbanded successfully!");
+                break;
+                
             case "leave":
                 if (currentTeam == null) { p.sendMessage(getMsg("team_not_in")); return; }
                 TeamData lTeam = teams.get(currentTeam);
-                if (lTeam.creator.equals(uuid)) {
-                    if (lTeam.members.size() > 1) {
-                        p.sendMessage("§cYou cannot disband your team while members remain.");
-                        return;
-                    }
-                    teams.remove(currentTeam);
-                    playerTeam.remove(uuid);
-                    saveData();
-                    updatePlayerVisuals(p);
-                    p.sendMessage("§6You dissolved your team.");
-                } else {
-                    lTeam.members.remove(p.getName());
-                    playerTeam.remove(uuid);
-                    saveData();
-                    updatePlayerVisuals(p);
-                    p.sendMessage("§6You left your team.");
+                if (lTeam.creatorName.equalsIgnoreCase(p.getName())) {
+                    p.sendMessage("§cYou are the creator. Use /team disband instead.");
+                    return;
                 }
+                lTeam.members.remove(p.getName());
+                playerTeam.remove(pName);
+                saveData();
+                updatePlayerVisuals(p);
+                p.sendMessage("§6You left your team.");
                 break;
 
             case "kick":
                 if (currentTeam == null) { p.sendMessage(getMsg("team_not_in")); return; }
                 TeamData kTeam = teams.get(currentTeam);
-                if (!kTeam.creator.equals(uuid)) {
+                if (!kTeam.creatorName.equalsIgnoreCase(p.getName())) {
                     p.sendMessage("§cOnly the creator can kick members.");
                     return;
                 }
@@ -1291,19 +1290,36 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                     return;
                 }
                 String targetName = args[1];
-                if (!kTeam.members.contains(targetName)) {
+                
+                if (targetName.equalsIgnoreCase(p.getName())) {
+                    p.sendMessage("§cYou cannot kick yourself!");
+                    return;
+                }
+                
+                // Recherche insensible à la casse
+                String exactMemberName = null;
+                for (String m : kTeam.members) {
+                    if (m.equalsIgnoreCase(targetName)) {
+                        exactMemberName = m;
+                        break;
+                    }
+                }
+                
+                if (exactMemberName == null) {
                     p.sendMessage("§cThis player is not in your team.");
                     return;
                 }
-                kTeam.members.remove(targetName);
-                Player targetPlayer = Bukkit.getPlayer(targetName);
+                
+                kTeam.members.remove(exactMemberName);
+                playerTeam.remove(exactMemberName.toLowerCase());
+                
+                Player targetPlayer = Bukkit.getPlayer(exactMemberName);
                 if (targetPlayer != null) {
-                    playerTeam.remove(targetPlayer.getUniqueId());
                     updatePlayerVisuals(targetPlayer);
                     targetPlayer.sendMessage("§cYou have been kicked from the team.");
                 }
                 saveData();
-                p.sendMessage(getMsg("team_kick", targetName));
+                p.sendMessage(getMsg("team_kick", exactMemberName));
                 break;
         }
     }
