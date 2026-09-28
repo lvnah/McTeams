@@ -618,7 +618,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         String pName = p.getName().toLowerCase();
         String colorCode = getRankColorCode(playerRanks.getOrDefault(pName, "default"));
         String clan = playerTeam.get(pName);
-        String clanTag = (clan != null && !clan.isEmpty()) ? "§f[§6" + clan + "§f] " : "";
+        String clanTag = (clan != null && !clan.isEmpty()) ? "§f[§f" + clan + "§f] " : "";
 
         p.setDisplayName(clanTag + colorCode + p.getName() + "§r");
 
@@ -632,7 +632,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         for (Player target : Bukkit.getOnlinePlayers()) {
             String tn = target.getName().toLowerCase();
             String clan = playerTeam.get(tn);
-            String clanTag = (clan != null && !clan.isEmpty()) ? "§f[§6" + clan + "§f] " : "";
+            String clanTag = (clan != null && !clan.isEmpty()) ? "§f[§f" + clan + "§f] " : "";
             target.setDisplayName(clanTag + getRankColorCode(playerRanks.getOrDefault(tn, "default")) + target.getName() + "§r");
         }
         for (Player viewer : Bukkit.getOnlinePlayers()) {
