@@ -98,11 +98,8 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
             playerRanks.putIfAbsent(pName, "default");
         }
         
-        Bukkit.getScheduler().runTaskLater(this, () -> {
-            for (Player p : Bukkit.getOnlinePlayers()) {
-                updatePlayerVisuals(p);
-            }
-        }, 20L);
+        // FIX: refresh complet (tous les viewers x tous les joueurs) après le chargement
+        Bukkit.getScheduler().runTaskLater(this, this::refreshAllVisuals, 20L);
 
         Bukkit.getScheduler().runTaskTimer(this, this::updateScoreboards, 0L, 20L);
         getLogger().info("McTeams (WindSpigot Optimized - Name Based) enabled successfully!");
@@ -291,13 +288,14 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
             ItemStack book = new ItemStack(Material.WRITTEN_BOOK, 1);
             BookMeta bookMeta = (BookMeta) book.getItemMeta();
             bookMeta.setDisplayName("§fWelcome to Soup§6Teams");
-            bookMeta.setPages("§fWelcome to Soup§6Soup §fMap 1");
+            bookMeta.setPages("§fWelcome to Soup§6Teams §fMap 1");
             book.setItemMeta(bookMeta);
 
             p.getInventory().addItem(fishingRod, book);
         }
 
-        updatePlayerVisuals(p);
+        // FIX: update retardé, le client doit avoir fini de se connecter pour recevoir les packets de team
+        Bukkit.getScheduler().runTaskLater(this, this::refreshAllVisuals, 5L);
 
         for (int i = 0; i < 200; i++) {
             p.sendMessage("");
@@ -546,25 +544,24 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         return true;
     }
 
-    // CHAT SYSTEM FIX: Uses Native Bukkit Format to completely prevent color bleeding
+    // FIX CHAT : on n'utilise plus %1$s (displayName) mais le vrai pseudo,
+    // et on remet explicitement le blanc après le pseudo (§r§f) pour que le message soit blanc.
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onChat(AsyncPlayerChatEvent e) {
         Player p = e.getPlayer();
         String pName = p.getName().toLowerCase();
-        
-        String rank = playerRanks.getOrDefault(pName, "default");
-        String colorCode = getRankColorCode(rank);
+
+        String colorCode = getRankColorCode(playerRanks.getOrDefault(pName, "default"));
         String clan = playerTeam.get(pName);
-        
         String clanTag = (clan != null && !clan.isEmpty()) ? "§f[§6" + clan + "§f] " : "";
-        
-        // Strip colors from the actual message to prevent player using custom codes
-        String cleanMessage = ChatColor.stripColor(e.getMessage());
-        e.setMessage(cleanMessage);
-        
-        // Use standard Bukkit formatting (%1$s = name, %2$s = message)
-        e.setFormat(clanTag + colorCode + "%1$s§f > §f%2$s");
-    }    
+
+        // Empêche les joueurs d'utiliser des codes couleur dans leurs messages
+        e.setMessage(ChatColor.stripColor(e.getMessage()));
+
+        // On échappe les % du nom de clan/pseudo, sinon String.format plante
+        String safePrefix = clanTag.replace("%", "%%") + colorCode + p.getName().replace("%", "%%");
+        e.setFormat(safePrefix + "§r§f > §f%2$s");
+    }
 
     private String getRankColorCode(String rank) {
         switch (rank.toLowerCase()) {
@@ -577,54 +574,72 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         }
     }
 
+    // ==================== VISUELS (nametag / tab) ====================
+
+    private Scoreboard getBoard(Player viewer) {
+        Scoreboard board = viewer.getScoreboard();
+        if (board == Bukkit.getScoreboardManager().getMainScoreboard()) {
+            board = Bukkit.getScoreboardManager().getNewScoreboard();
+            viewer.setScoreboard(board);
+        }
+        return board;
+    }
+
+    // Préfixe compatible 1.8 (max 16 caractères) : on tronque le nom du clan, jamais les codes couleur
+    private String buildPrefix(String clan, String colorCode) {
+        if (clan == null || clan.isEmpty()) return colorCode;
+        int max = 16 - colorCode.length() - 5; // "§6[" (3) + "] " (2) = 5 caractères
+        if (max < 1) max = 1;
+        String c = clan.length() > max ? clan.substring(0, max) : clan;
+        return "§6[" + c + "] " + colorCode;
+    }
+
+    private void applyTeamEntry(Scoreboard board, Player target) {
+        String tName = target.getName().toLowerCase();
+        String prefix = buildPrefix(playerTeam.get(tName), getRankColorCode(playerRanks.getOrDefault(tName, "default")));
+
+        String teamName = "r_" + target.getName();
+        if (teamName.length() > 16) teamName = teamName.substring(0, 16);
+
+        Team t = board.getTeam(teamName);
+        if (t == null) t = board.registerNewTeam(teamName);
+
+        t.setPrefix(prefix);
+        t.setSuffix("");
+        if (!t.hasEntry(target.getName())) t.addEntry(target.getName());
+    }
+
+    // Met à jour UN joueur pour tous les viewers
     private void updatePlayerVisuals(Player p) {
         String pName = p.getName().toLowerCase();
-        String rank = playerRanks.getOrDefault(pName, "default");
-        String colorCode = getRankColorCode(rank);
+        String colorCode = getRankColorCode(playerRanks.getOrDefault(pName, "default"));
         String clan = playerTeam.get(pName);
-        
         String clanTag = (clan != null && !clan.isEmpty()) ? "§f[§6" + clan + "§f] " : "";
-        String fullPrefix = clanTag + colorCode;
-        
-        p.setDisplayName(fullPrefix + p.getName());
-        p.setCustomName(fullPrefix + p.getName());
-        p.setCustomNameVisible(true);
-        
-        String tabName = fullPrefix + p.getName();
-        if (tabName.length() > 16) {
-            tabName = tabName.substring(0, 16);
-        }
-        p.setPlayerListName(tabName);
+
+        p.setDisplayName(clanTag + colorCode + p.getName() + "§r");
 
         for (Player viewer : Bukkit.getOnlinePlayers()) {
-            Scoreboard board = viewer.getScoreboard();
-            if (board == Bukkit.getScoreboardManager().getMainScoreboard()) {
-                board = Bukkit.getScoreboardManager().getNewScoreboard();
-                viewer.setScoreboard(board);
-            }
-            
-            String teamName = "r_" + p.getName();
-            if (teamName.length() > 16) {
-                teamName = teamName.substring(0, 16);
-            }
-            
-            Team t = board.getTeam(teamName);
-            if (t == null) {
-                t = board.registerNewTeam(teamName);
-            }
-            
-            String scorePrefix = fullPrefix;
-            if (scorePrefix.length() > 16) {
-                scorePrefix = scorePrefix.substring(0, 16);
-            }
-            
-            t.setPrefix(scorePrefix);
-            t.setSuffix("");
-            if (!t.hasEntry(p.getName())) {
-                t.addEntry(p.getName());
+            applyTeamEntry(getBoard(viewer), p);
+        }
+    }
+
+    // Met à jour TOUT LE MONDE pour TOUT LE MONDE (à utiliser au join / enable)
+    private void refreshAllVisuals() {
+        for (Player target : Bukkit.getOnlinePlayers()) {
+            String tn = target.getName().toLowerCase();
+            String clan = playerTeam.get(tn);
+            String clanTag = (clan != null && !clan.isEmpty()) ? "§f[§6" + clan + "§f] " : "";
+            target.setDisplayName(clanTag + getRankColorCode(playerRanks.getOrDefault(tn, "default")) + target.getName() + "§r");
+        }
+        for (Player viewer : Bukkit.getOnlinePlayers()) {
+            Scoreboard board = getBoard(viewer);
+            for (Player target : Bukkit.getOnlinePlayers()) {
+                applyTeamEntry(board, target);
             }
         }
     }
+
+    // ==================== MOD MODE ====================
 
     private void enableModMode(Player p) {
         modMode.add(p.getUniqueId());
@@ -675,7 +690,8 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                 }
             }
 
-            Scoreboard board = p.getScoreboard();
+            // FIX: on passe par getBoard() pour ne jamais écrire sur le scoreboard principal
+            Scoreboard board = getBoard(p);
             Objective obj = board.getObjective("mcteams");
             if (obj == null) {
                 obj = board.registerNewObjective("mcteams", "dummy");
