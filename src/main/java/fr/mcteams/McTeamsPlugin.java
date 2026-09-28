@@ -557,7 +557,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
 
         String colorCode = getRankColorCode(playerRanks.getOrDefault(pName, "default"));
         String clan = playerTeam.get(pName);
-        String clanTag = (clan != null && !clan.isEmpty()) ? "§f[§6" + clan + "§f] " : "";
+        String clanTag = (clan != null && !clan.isEmpty()) ? "§f[§f" + clan + "§f] " : "";
 
         // Empêche les joueurs d'utiliser des codes couleur dans leurs messages
         e.setMessage(ChatColor.stripColor(e.getMessage()));
