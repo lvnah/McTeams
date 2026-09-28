@@ -1,1 +1,1 @@
-# McTeams
+# McTeams plugins for SOUPTEAMS 
