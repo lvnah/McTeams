@@ -221,16 +221,18 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         ConfigurationSection balSec = getConfig().getConfigurationSection("balances");
         if (balSec != null) {
             for (String key : balSec.getKeys(false)) {
-                balances.put(key, balSec.getDouble(key));
+                balances.put(key.toLowerCase(), balSec.getDouble(key));
             }
         }
 
         ConfigurationSection rankSec = getConfig().getConfigurationSection("ranks");
         if (rankSec != null) {
             for (String key : rankSec.getKeys(false)) {
-                playerRanks.put(key, rankSec.getString(key));
+                String r = rankSec.getString(key);
+                if (r != null) playerRanks.put(key.toLowerCase(), r.toLowerCase());
             }
         }
+        getLogger().info("[McTeams] Ranks charges: " + playerRanks.size() + " | Balances: " + balances.size());
 
         ConfigurationSection homeSec = getConfig().getConfigurationSection("homes");
         if (homeSec != null) {
@@ -243,7 +245,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                         if (loc != null) homes.put(homeName, loc);
                     }
                 }
-                playerHomes.put(playerName, homes);
+                playerHomes.put(playerName.toLowerCase(), homes);
             }
         }
 
@@ -266,6 +268,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                 }
             }
         }
+        getLogger().info("[McTeams] Teams chargees: " + teams.size() + " | Joueurs en team: " + playerTeam.size());
     }
 
     @EventHandler
@@ -296,6 +299,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
 
         // FIX: update retardé, le client doit avoir fini de se connecter pour recevoir les packets de team
         Bukkit.getScheduler().runTaskLater(this, this::refreshAllVisuals, 5L);
+        Bukkit.getScheduler().runTaskLater(this, this::refreshAllVisuals, 40L);
 
         for (int i = 0; i < 200; i++) {
             p.sendMessage("");
@@ -591,7 +595,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         int max = 16 - colorCode.length() - 5; // "§6[" (3) + "] " (2) = 5 caractères
         if (max < 1) max = 1;
         String c = clan.length() > max ? clan.substring(0, max) : clan;
-        return "§6[" + c + "] " + colorCode;
+        return "§f[" + c + "] " + colorCode;
     }
 
     private void applyTeamEntry(Scoreboard board, Player target) {
