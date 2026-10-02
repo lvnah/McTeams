@@ -557,7 +557,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
 
         String colorCode = getRankColorCode(playerRanks.getOrDefault(pName, "default"));
         String clan = playerTeam.get(pName);
-        String clanTag = (clan != null && !clan.isEmpty()) ? "§f[§f" + clan + "§f] " : "";
+        String clanTag = (clan != null && !clan.isEmpty()) ? "§f[§6" + clan + "§f] " : "";
 
         // Empêche les joueurs d'utiliser des codes couleur dans leurs messages
         e.setMessage(ChatColor.stripColor(e.getMessage()));
@@ -618,13 +618,25 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         String pName = p.getName().toLowerCase();
         String colorCode = getRankColorCode(playerRanks.getOrDefault(pName, "default"));
         String clan = playerTeam.get(pName);
-        String clanTag = (clan != null && !clan.isEmpty()) ? "§f[§f" + clan + "§f] " : "";
+        String clanTag = (clan != null && !clan.isEmpty()) ? "§f[§6" + clan + "§f] " : "";
 
         p.setDisplayName(clanTag + colorCode + p.getName() + "§r");
 
         for (Player viewer : Bukkit.getOnlinePlayers()) {
             applyTeamEntry(getBoard(viewer), p);
         }
+
+        // Force le redessin du nametag au-dessus de la tête pour tous les viewers
+        for (Player viewer : Bukkit.getOnlinePlayers()) {
+            if (viewer == p) continue;
+            viewer.hidePlayer(p);
+        }
+        Bukkit.getScheduler().runTaskLater(this, () -> {
+            for (Player viewer : Bukkit.getOnlinePlayers()) {
+                if (viewer == p) continue;
+                viewer.showPlayer(p);
+            }
+        }, 3L);
     }
 
     // Met à jour TOUT LE MONDE pour TOUT LE MONDE (à utiliser au join / enable)
@@ -632,7 +644,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         for (Player target : Bukkit.getOnlinePlayers()) {
             String tn = target.getName().toLowerCase();
             String clan = playerTeam.get(tn);
-            String clanTag = (clan != null && !clan.isEmpty()) ? "§f[§f" + clan + "§f] " : "";
+            String clanTag = (clan != null && !clan.isEmpty()) ? "§f[§6" + clan + "§f] " : "";
             target.setDisplayName(clanTag + getRankColorCode(playerRanks.getOrDefault(tn, "default")) + target.getName() + "§r");
         }
         for (Player viewer : Bukkit.getOnlinePlayers()) {
@@ -641,6 +653,28 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                 applyTeamEntry(board, target);
             }
         }
+        // FIX NAMETAG: en 1.8, le prefixe de team met bien à jour le TAB instantanément,
+        // mais le nametag flottant au-dessus de la tête n'est pas toujours redessiné par le client
+        // tant qu'il ne "revoit" pas l'entité. On force donc un hide/show.
+        forceNametagRefresh();
+    }
+
+    private void forceNametagRefresh() {
+        List<Player> online = new ArrayList<>(Bukkit.getOnlinePlayers());
+        for (Player viewer : online) {
+            for (Player target : online) {
+                if (viewer == target) continue;
+                viewer.hidePlayer(target);
+            }
+        }
+        Bukkit.getScheduler().runTaskLater(this, () -> {
+            for (Player viewer : Bukkit.getOnlinePlayers()) {
+                for (Player target : Bukkit.getOnlinePlayers()) {
+                    if (viewer == target) continue;
+                    viewer.showPlayer(target);
+                }
+            }
+        }, 3L);
     }
 
     // ==================== MOD MODE ====================
