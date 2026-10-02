@@ -550,7 +550,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
 
     // FIX CHAT : on n'utilise plus %1$s (displayName) mais le vrai pseudo,
     // et on remet explicitement le blanc après le pseudo (§r§f) pour que le message soit blanc.
-    @EventHandler(priority = EventPriority.HIGHEST)
+    @EventHandler(priority = EventPriority.MONITOR)
     public void onChat(AsyncPlayerChatEvent e) {
         Player p = e.getPlayer();
         String pName = p.getName().toLowerCase();
