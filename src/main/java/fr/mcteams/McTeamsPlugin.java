@@ -277,8 +277,14 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         Player p = e.getPlayer();
         String pName = p.getName().toLowerCase();
         
+        boolean hadRankAlready = playerRanks.containsKey(pName);
         playerRanks.putIfAbsent(pName, "default");
         spawnProtected.put(p.getUniqueId(), true); 
+
+        getLogger().info("[McTeams-DEBUG] JOIN " + pName
+                + " | rankDejaEnMemoire=" + hadRankAlready
+                + " | rankActuel=" + playerRanks.get(pName)
+                + " | teamActuelle=" + playerTeam.get(pName));
 
         if (!p.hasPlayedBefore()) {
             if (spawnLocation != null) {
@@ -555,9 +561,16 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         Player p = e.getPlayer();
         String pName = p.getName().toLowerCase();
 
-        String colorCode = getRankColorCode(playerRanks.getOrDefault(pName, "default"));
+        String rawRank = playerRanks.getOrDefault(pName, "default");
+        String colorCode = getRankColorCode(rawRank);
         String clan = playerTeam.get(pName);
         String clanTag = (clan != null && !clan.isEmpty()) ? "§f[§6" + clan + "§f] " : "";
+
+        getLogger().info("[McTeams-DEBUG] CHAT " + pName
+                + " | rankLu=" + rawRank
+                + " | teamLue=" + clan
+                + " | mapRanksSize=" + playerRanks.size()
+                + " | mapTeamSize=" + playerTeam.size());
 
         // Empêche les joueurs d'utiliser des codes couleur dans leurs messages
         e.setMessage(ChatColor.stripColor(e.getMessage()));
