@@ -4,7 +4,7 @@ main: fr.mcteams.McTeamsPlugin
 depend: [WorldGuard]
 commands:
   setspawn:
-    description: Définit le spawn du serveur
+    description: Définit le spawn du serveurss
   spawn:
     description: Se téléporter au spawn
   go:
