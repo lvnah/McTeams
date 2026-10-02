@@ -91,6 +91,17 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         }
 
         getServer().getPluginManager().registerEvents(this, this);
+
+        // FIX CRITIQUE: PrepareAnvilEvent n'existe pas sur certains forks (dont le tien).
+        // Si on le laisse dans la classe principale, Bukkit echoue a enregistrer TOUS les
+        // evenements de la classe (onJoin, onChat, etc.) a cause de cette seule classe manquante.
+        // On l'isole donc dans un listener separe, protege par un try/catch.
+        try {
+            getServer().getPluginManager().registerEvents(new AnvilListener(), this);
+        } catch (Throwable t) {
+            getLogger().warning("[McTeams] PrepareAnvilEvent indisponible sur ce serveur : "
+                    + "la protection anti-knockback sur enclume est desactivee, le reste du plugin fonctionne normalement.");
+        }
         
         for (Player p : Bukkit.getOnlinePlayers()) {
             String pName = p.getName().toLowerCase();
@@ -325,23 +336,6 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                 e.getEnchantsToAdd().remove(Enchantment.KNOCKBACK);
                 e.getEnchanter().sendMessage("§cKnockback enchantment is disabled on swords!");
             }
-        }
-    }
-
-    @EventHandler
-    public void onPrepareAnvil(PrepareAnvilEvent e) {
-        AnvilInventory inv = e.getInventory();
-        ItemStack result = e.getResult();
-        if (result != null && result.getType().name().contains("SWORD")) {
-            if (result.containsEnchantment(Enchantment.KNOCKBACK)) {
-                result.removeEnchantment(Enchantment.KNOCKBACK);
-                e.setResult(null);
-            }
-        }
-        ItemStack item1 = inv.getItem(0);
-        ItemStack item2 = inv.getItem(1);
-        if ((item1 != null && item1.containsEnchantment(Enchantment.KNOCKBACK)) || (item2 != null && item2.containsEnchantment(Enchantment.KNOCKBACK))) {
-            e.setResult(null);
         }
     }
 
@@ -1396,5 +1390,27 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
             if (e instanceof Player && e != p) return true;
         }
         return false;
+    }
+
+    // Isole la dependance a PrepareAnvilEvent : si cette classe n'existe pas sur le serveur,
+    // seul CE listener echoue a s'enregistrer (voir le try/catch dans onEnable), et le reste
+    // du plugin (join, chat, teleport, etc.) continue de fonctionner normalement.
+    private class AnvilListener implements Listener {
+        @EventHandler
+        public void onPrepareAnvil(PrepareAnvilEvent e) {
+            AnvilInventory inv = e.getInventory();
+            ItemStack result = e.getResult();
+            if (result != null && result.getType().name().contains("SWORD")) {
+                if (result.containsEnchantment(Enchantment.KNOCKBACK)) {
+                    result.removeEnchantment(Enchantment.KNOCKBACK);
+                    e.setResult(null);
+                }
+            }
+            ItemStack item1 = inv.getItem(0);
+            ItemStack item2 = inv.getItem(1);
+            if ((item1 != null && item1.containsEnchantment(Enchantment.KNOCKBACK)) || (item2 != null && item2.containsEnchantment(Enchantment.KNOCKBACK))) {
+                e.setResult(null);
+            }
+        }
     }
 }
