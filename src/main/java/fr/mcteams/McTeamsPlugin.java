@@ -99,7 +99,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         try {
             getServer().getPluginManager().registerEvents(new AnvilListener(), this);
         } catch (Throwable t) {
-            getLogger().warning("[McTeams] PrepareAnvilEvent indisponible sur ce serveur : "
+            getLogger().warning("[McTeams] Prepare AnvilEvent indisponible sur ce serveur : "
                     + "la protection anti-knockback sur enclume est desactivee, le reste du plugin fonctionne normalement.");
         }
         
