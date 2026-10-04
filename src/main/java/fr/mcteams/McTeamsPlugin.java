@@ -292,11 +292,6 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         playerRanks.putIfAbsent(pName, "default");
         spawnProtected.put(p.getUniqueId(), true); 
 
-        getLogger().info("[McTeams-DEBUG] JOIN " + pName
-                + " | rankDejaEnMemoire=" + hadRankAlready
-                + " | rankActuel=" + playerRanks.get(pName)
-                + " | teamActuelle=" + playerTeam.get(pName));
-
         if (!p.hasPlayedBefore()) {
             if (spawnLocation != null) {
                 p.teleport(spawnLocation);
@@ -325,6 +320,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         p.sendMessage("§f§m-----------------------------------");
         p.sendMessage("§fWelcome to Soup§6Teams §fMap 1");
         p.sendMessage("§eType §6/help §eto see commands!");
+        p.sendMessage("§f");
         p.sendMessage("§fhttps://www.soupteams.eu");
         p.sendMessage("§f§m-----------------------------------");
     }
@@ -560,18 +556,14 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         String clan = playerTeam.get(pName);
         String clanTag = (clan != null && !clan.isEmpty()) ? "§f[§6" + clan + "§f] " : "";
 
-        getLogger().info("[McTeams-DEBUG] CHAT " + pName
-                + " | rankLu=" + rawRank
-                + " | teamLue=" + clan
-                + " | mapRanksSize=" + playerRanks.size()
-                + " | mapTeamSize=" + playerTeam.size());
+
 
         // Empêche les joueurs d'utiliser des codes couleur dans leurs messages
         e.setMessage(ChatColor.stripColor(e.getMessage()));
 
         // On échappe les % du nom de clan/pseudo, sinon String.format plante
         String safePrefix = clanTag.replace("%", "%%") + colorCode + p.getName().replace("%", "%%");
-        e.setFormat(safePrefix + "§r§f > §f%2$s");
+        e.setFormat("§r§f<" + safePrefix + "§r§f > §f%2$s");
     }
 
     private String getRankColorCode(String rank) {
