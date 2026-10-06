@@ -14,6 +14,7 @@ import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.ConfigurationSection;
+import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
@@ -51,12 +52,20 @@ import org.bukkit.scoreboard.Objective;
 import org.bukkit.scoreboard.Scoreboard;
 import org.bukkit.scoreboard.Team;
 
+import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpServer;
+
+import java.io.File;
+import java.io.OutputStream;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.text.DecimalFormat;
 import java.util.*;
 
 public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listener {
 
     private Location spawnLocation;
+    private HttpServer httpServer;
     
     // PERSISTENT DATA : Basé sur le pseudo (String) pour éviter les pertes d'UUID sur les serveurs offline/1.8.8
     private final Map<String, Map<String, Location>> playerHomes = new HashMap<>();
@@ -73,6 +82,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
     private final Set<UUID> modMode = new HashSet<>();
     private final List<MarketItem> market = new ArrayList<>();
     private final DecimalFormat df = new DecimalFormat("#.##");
+    private static final int MAX_TEAM_MEMBERS = 6;
 
     @Override
     public void onEnable() {
@@ -113,12 +123,102 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         Bukkit.getScheduler().runTaskLater(this, this::refreshAllVisuals, 20L);
 
         Bukkit.getScheduler().runTaskTimer(this, this::updateScoreboards, 0L, 20L);
+
+        startHttpServer();
+
         getLogger().info("McTeams (WindSpigot Optimized - Name Based) enabled successfully!");
     }
 
     @Override
     public void onDisable() {
         saveData();
+        if (httpServer != null) {
+            httpServer.stop(0);
+            httpServer = null;
+        }
+    }
+
+    // ==================== API HTTP (Top 10 balances) ====================
+    // Expose un endpoint JSON en lecture seule pour le site web.
+    // Lit directement config.yml a chaque requete (pas la map en memoire) pour avoir
+    // toujours la derniere valeur persistee sur disque, comme demande.
+
+    private void startHttpServer() {
+        int port = getConfig().getInt("http-port", 8080);
+        if (!getConfig().contains("http-port")) {
+            getConfig().set("http-port", port);
+            saveConfig();
+        }
+        try {
+            httpServer = HttpServer.create(new InetSocketAddress(port), 0);
+            httpServer.createContext("/api/top10", this::handleTop10);
+            httpServer.setExecutor(null);
+            httpServer.start();
+            getLogger().info("[McTeams] API HTTP demarree sur le port " + port + " (endpoint: /api/top10)");
+        } catch (Exception e) {
+            getLogger().warning("[McTeams] Impossible de demarrer le serveur HTTP sur le port " + port
+                    + " : " + e.getMessage() + " (le port est peut-etre deja utilise, change 'http-port' dans config.yml)");
+        }
+    }
+
+    private void handleTop10(HttpExchange exchange) {
+        String json;
+        try {
+            File configFile = new File(getDataFolder(), "config.yml");
+            YamlConfiguration freshConfig = YamlConfiguration.loadConfiguration(configFile);
+            ConfigurationSection balSec = freshConfig.getConfigurationSection("balances");
+
+            List<BalanceEntry> list = new ArrayList<>();
+            if (balSec != null) {
+                for (String key : balSec.getKeys(false)) {
+                    list.add(new BalanceEntry(key, balSec.getDouble(key)));
+                }
+            }
+            list.sort((a, b) -> Double.compare(b.balance, a.balance));
+
+            StringBuilder sb = new StringBuilder("[");
+            int limit = Math.min(10, list.size());
+            for (int i = 0; i < limit; i++) {
+                BalanceEntry entry = list.get(i);
+                if (i > 0) sb.append(",");
+                sb.append("{\"rank\":").append(i + 1)
+                        .append(",\"player\":\"").append(escapeJson(entry.name)).append("\"")
+                        .append(",\"balance\":").append(String.format(Locale.US, "%.2f", entry.balance))
+                        .append("}");
+            }
+            sb.append("]");
+            json = sb.toString();
+        } catch (Exception ex) {
+            json = "{\"error\":\"" + escapeJson(ex.getMessage()) + "\"}";
+        }
+
+        byte[] bytes = json.getBytes(StandardCharsets.UTF_8);
+        try {
+            exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
+            exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
+            exchange.sendResponseHeaders(200, bytes.length);
+            try (OutputStream os = exchange.getResponseBody()) {
+                os.write(bytes);
+            }
+        } catch (Exception ignored) {
+        } finally {
+            exchange.close();
+        }
+    }
+
+    private String escapeJson(String s) {
+        if (s == null) return "";
+        return s.replace("\\", "\\\\").replace("\"", "\\\"");
+    }
+
+    private static class BalanceEntry {
+        final String name;
+        final double balance;
+
+        BalanceEntry(String name, double balance) {
+            this.name = name;
+            this.balance = balance;
+        }
     }
 
     private String getMsg(String key, Object... args) {
@@ -387,6 +487,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         modInventories.remove(p.getUniqueId());
         combatTag.remove(p.getUniqueId());
         activeTeleports.remove(p.getUniqueId());
+        // Protection de spawn redonnée pour TOUTE cause de mort (PvP, mob, chute, void...)
         spawnProtected.put(p.getUniqueId(), true);
 
         Bukkit.getScheduler().runTaskLater(this, () -> {
@@ -737,26 +838,35 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
             }
 
             Map<String, Integer> currentLines = new LinkedHashMap<>();
-            currentLines.put("§m---------------------", 7);
-            
+            int line = 10; // compteur decroissant : evite toute collision entre lignes optionnelles
+
+            currentLines.put("§m---------------------", line--);
+
             String tName = playerTeam.getOrDefault(pName, "None");
             if(tName.length() > 10) tName = tName.substring(0, 10) + "..";
-            currentLines.put("§6Team: §f" + tName, 6);
+            currentLines.put("§6Team: §f" + tName, line--);
             
-            currentLines.put("§6Balance: §f" + df.format(balances.getOrDefault(pName, 0.0)), 5);
+            currentLines.put("§6Balance: §f" + df.format(balances.getOrDefault(pName, 0.0)), line--);
             
             boolean isProtected = spawnProtected.getOrDefault(uuid, false);
-            currentLines.put("§6Spawn protection: " + (isProtected ? "§aEnable" : "§cDisable"), 4);
+            currentLines.put("§6Spawn protection: " + (isProtected ? "§aEnable" : "§cDisable"), line--);
+
+            // Combat tag affiche en secondes, mis a jour chaque tick du scoreboard (1x/sec)
+            if (isInCombat(p)) {
+                long remainingMs = combatTag.get(uuid) - System.currentTimeMillis();
+                long remainingSec = Math.max(0L, (remainingMs + 999L) / 1000L);
+                currentLines.put("§cCombat: §f" + remainingSec + "s", line--);
+            }
 
             if (modMode.contains(uuid)) {
-                currentLines.put("§6Mod: §aEnable", 3);
+                currentLines.put("§6Mod: §aEnable", line--);
             }
 
             if (activeTeleports.containsKey(uuid)) {
-                currentLines.put("§6Teleportation: §f" + activeTeleports.get(uuid), 2);
+                currentLines.put("§6Teleportation: §f" + activeTeleports.get(uuid), line--);
             }
             
-            currentLines.put("§f§m---------------------", 1);
+            currentLines.put("§f§m---------------------", line--);
 
             for (String entry : board.getEntries()) {
                 if (!currentLines.containsKey(entry) && obj.getScore(entry).getScore() > 0) {
@@ -1016,6 +1126,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
             case "team":
                 if (args.length == 0) {
                     p.sendMessage("§6TEAMS §f! §6/team create [name] §f! §6Create team");
+                    p.sendMessage("§6TEAMS §f! §6/team invite [player] §f! §6Invite player (max " + MAX_TEAM_MEMBERS + ")");
                     p.sendMessage("§6TEAMS §f! §6/team disband §f! §6Disband team (Creator)");
                     p.sendMessage("§6TEAMS §f! §6/team sethq §f! §6Set team HQ");
                     p.sendMessage("§6TEAMS §f! §6/team hq §f! §6Teleport to HQ");
@@ -1257,6 +1368,45 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                 saveData();
                 updatePlayerVisuals(p);
                 p.sendMessage(getMsg("team_created", teamName));
+                break;
+
+            case "invite":
+                if (currentTeam == null) { p.sendMessage(getMsg("team_not_in")); return; }
+                TeamData iTeam = teams.get(currentTeam);
+                if (!iTeam.creatorName.equalsIgnoreCase(p.getName())) {
+                    p.sendMessage("§cOnly the creator can invite players.");
+                    return;
+                }
+                if (args.length < 2) {
+                    p.sendMessage("§cUsage: §f/team invite <player>");
+                    return;
+                }
+                if (iTeam.members.size() >= MAX_TEAM_MEMBERS) {
+                    p.sendMessage("§cYour team already has the maximum of " + MAX_TEAM_MEMBERS + " members!");
+                    return;
+                }
+                Player invitee = Bukkit.getPlayer(args[1]);
+                if (invitee == null) {
+                    p.sendMessage("§cPlayer not found or not online.");
+                    return;
+                }
+                String inviteeName = invitee.getName().toLowerCase();
+                if (inviteeName.equals(pName)) {
+                    p.sendMessage("§cYou cannot invite yourself!");
+                    return;
+                }
+                // Un joueur ne peut etre que dans une seule team a la fois
+                if (playerTeam.containsKey(inviteeName)) {
+                    p.sendMessage("§cThis player is already in a team.");
+                    return;
+                }
+
+                iTeam.members.add(invitee.getName());
+                playerTeam.put(inviteeName, currentTeam);
+                saveData();
+                updatePlayerVisuals(invitee);
+                p.sendMessage("§6You invited §f" + invitee.getName() + " §6to your team! (" + iTeam.members.size() + "/" + MAX_TEAM_MEMBERS + ")");
+                invitee.sendMessage("§6You have been added to the team §f" + currentTeam + " §6by §f" + p.getName() + "§6!");
                 break;
 
             case "sethq":
