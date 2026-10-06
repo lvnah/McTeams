@@ -161,50 +161,63 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         }
     }
 
-    private void handleTop10(HttpExchange exchange) {
-        String json;
+private void handleTop10(HttpExchange exchange) {
+    // Si le navigateur ou Vercel fait une requête de pré-vérification (OPTIONS)
+    if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
         try {
-            File configFile = new File(getDataFolder(), "config.yml");
-            YamlConfiguration freshConfig = YamlConfiguration.loadConfiguration(configFile);
-            ConfigurationSection balSec = freshConfig.getConfigurationSection("balances");
-
-            List<BalanceEntry> list = new ArrayList<>();
-            if (balSec != null) {
-                for (String key : balSec.getKeys(false)) {
-                    list.add(new BalanceEntry(key, balSec.getDouble(key)));
-                }
-            }
-            list.sort((a, b) -> Double.compare(b.balance, a.balance));
-
-            StringBuilder sb = new StringBuilder("[");
-            int limit = Math.min(10, list.size());
-            for (int i = 0; i < limit; i++) {
-                BalanceEntry entry = list.get(i);
-                if (i > 0) sb.append(",");
-                sb.append("{\"rank\":").append(i + 1)
-                        .append(",\"player\":\"").append(escapeJson(entry.name)).append("\"")
-                        .append(",\"balance\":").append(String.format(Locale.US, "%.2f", entry.balance))
-                        .append("}");
-            }
-            sb.append("]");
-            json = sb.toString();
-        } catch (Exception ex) {
-            json = "{\"error\":\"" + escapeJson(ex.getMessage()) + "\"}";
-        }
-
-        byte[] bytes = json.getBytes(StandardCharsets.UTF_8);
-        try {
-            exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
             exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
-            exchange.sendResponseHeaders(200, bytes.length);
-            try (OutputStream os = exchange.getResponseBody()) {
-                os.write(bytes);
-            }
-        } catch (Exception ignored) {
-        } finally {
-            exchange.close();
-        }
+            exchange.getResponseHeaders().set("Access-Control-Allow-Methods", "GET, OPTIONS");
+            exchange.getResponseHeaders().set("Access-Control-Allow-Headers", "*");
+            exchange.sendResponseHeaders(204, -1);
+        } catch (Exception ignored) {}
+        finally { exchange.close(); }
+        return;
     }
+
+    String json;
+    try {
+        File configFile = new File(getDataFolder(), "config.yml");
+        YamlConfiguration freshConfig = YamlConfiguration.loadConfiguration(configFile);
+        ConfigurationSection balSec = freshConfig.getConfigurationSection("balances");
+
+        List<BalanceEntry> list = new ArrayList<>();
+        if (balSec != null) {
+            for (String key : balSec.getKeys(false)) {
+                list.add(new BalanceEntry(key, balSec.getDouble(key)));
+            }
+        }
+        list.sort((a, b) -> Double.compare(b.balance, a.balance));
+
+        StringBuilder sb = new StringBuilder("[");
+        int limit = Math.min(10, list.size());
+        for (int i = 0; i < limit; i++) {
+            BalanceEntry entry = list.get(i);
+            if (i > 0) sb.append(",");
+            sb.append("{\"rank\":").append(i + 1)
+                    .append(",\"player\":\"").append(escapeJson(entry.name)).append("\"")
+                    .append(",\"balance\":").append(String.format(Locale.US, "%.2f", entry.balance))
+                    .append("}");
+        }
+        sb.append("]");
+        json = sb.toString();
+    } catch (Exception ex) {
+        json = "[]"; // Renvoie un tableau vide plutôt qu'une erreur pour éviter de faire planter le site
+    }
+
+    byte[] bytes = json.getBytes(StandardCharsets.UTF_8);
+    try {
+        exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
+        exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().set("Access-Control-Allow-Methods", "GET, OPTIONS");
+        exchange.sendResponseHeaders(200, bytes.length);
+        try (OutputStream os = exchange.getResponseBody()) {
+            os.write(bytes);
+        }
+    } catch (Exception ignored) {
+    } finally {
+        exchange.close();
+    }
+}
 
     private String escapeJson(String s) {
         if (s == null) return "";
