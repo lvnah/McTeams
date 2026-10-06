@@ -102,10 +102,6 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
 
         getServer().getPluginManager().registerEvents(this, this);
 
-        // FIX CRITIQUE: PrepareAnvilEvent n'existe pas sur certains forks (dont le tien).
-        // Si on le laisse dans la classe principale, Bukkit echoue a enregistrer TOUS les
-        // evenements de la classe (onJoin, onChat, etc.) a cause de cette seule classe manquante.
-        // On l'isole donc dans un listener separe, protege par un try/catch.
         try {
             getServer().getPluginManager().registerEvents(new AnvilListener(), this);
         } catch (Throwable t) {
@@ -119,9 +115,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
             playerRanks.putIfAbsent(pName, "default");
         }
         
-        // FIX: refresh complet (tous les viewers x tous les joueurs) après le chargement
         Bukkit.getScheduler().runTaskLater(this, this::refreshAllVisuals, 20L);
-
         Bukkit.getScheduler().runTaskTimer(this, this::updateScoreboards, 0L, 20L);
 
         startHttpServer();
@@ -138,13 +132,10 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         }
     }
 
-    // ==================== API HTTP (Top 10 balances) ====================
-    // Expose un endpoint JSON en lecture seule pour le site web.
-    // Lit directement config.yml a chaque requete (pas la map en memoire) pour avoir
-    // toujours la derniere valeur persistee sur disque, comme demande.
+    // ==================== API HTTP (Top 10 balances & Teams) ====================
 
     private void startHttpServer() {
-        int port = getConfig().getInt("http-port", 8080);
+        int port = getConfig().getInt("http-port", 2952);
         if (!getConfig().contains("http-port")) {
             getConfig().set("http-port", port);
             saveConfig();
@@ -152,72 +143,137 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         try {
             httpServer = HttpServer.create(new InetSocketAddress(port), 0);
             httpServer.createContext("/api/top10", this::handleTop10);
+            httpServer.createContext("/api/teams", this::handleTeams);
             httpServer.setExecutor(null);
             httpServer.start();
-            getLogger().info("[McTeams] API HTTP demarree sur le port " + port + " (endpoint: /api/top10)");
+            getLogger().info("[McTeams] API HTTP demarree sur le port " + port + " (endpoints: /api/top10, /api/teams)");
         } catch (Exception e) {
             getLogger().warning("[McTeams] Impossible de demarrer le serveur HTTP sur le port " + port
-                    + " : " + e.getMessage() + " (le port est peut-etre deja utilise, change 'http-port' dans config.yml)");
+                    + " : " + e.getMessage() + " (vérifie 'http-port' dans config.yml)");
         }
     }
 
-private void handleTop10(HttpExchange exchange) {
-    // Si le navigateur ou Vercel fait une requête de pré-vérification (OPTIONS)
-    if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
+    private void handleTop10(HttpExchange exchange) {
+        if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
+            try {
+                exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
+                exchange.getResponseHeaders().set("Access-Control-Allow-Methods", "GET, OPTIONS");
+                exchange.getResponseHeaders().set("Access-Control-Allow-Headers", "*");
+                exchange.sendResponseHeaders(204, -1);
+            } catch (Exception ignored) {}
+            finally { exchange.close(); }
+            return;
+        }
+
+        String json;
         try {
+            File configFile = new File(getDataFolder(), "config.yml");
+            YamlConfiguration freshConfig = YamlConfiguration.loadConfiguration(configFile);
+            ConfigurationSection balSec = freshConfig.getConfigurationSection("balances");
+
+            List<BalanceEntry> list = new ArrayList<>();
+            if (balSec != null) {
+                for (String key : balSec.getKeys(false)) {
+                    list.add(new BalanceEntry(key, balSec.getDouble(key)));
+                }
+            }
+            list.sort((a, b) -> Double.compare(b.balance, a.balance));
+
+            StringBuilder sb = new StringBuilder("[");
+            int limit = Math.min(10, list.size());
+            for (int i = 0; i < limit; i++) {
+                BalanceEntry entry = list.get(i);
+                if (i > 0) sb.append(",");
+                sb.append("{\"rank\":").append(i + 1)
+                        .append(",\"player\":\"").append(escapeJson(entry.name)).append("\"")
+                        .append(",\"balance\":").append(String.format(Locale.US, "%.2f", entry.balance))
+                        .append("}");
+            }
+            sb.append("]");
+            json = sb.toString();
+        } catch (Exception ex) {
+            json = "[]";
+        }
+
+        byte[] bytes = json.getBytes(StandardCharsets.UTF_8);
+        try {
+            exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
             exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
             exchange.getResponseHeaders().set("Access-Control-Allow-Methods", "GET, OPTIONS");
-            exchange.getResponseHeaders().set("Access-Control-Allow-Headers", "*");
-            exchange.sendResponseHeaders(204, -1);
-        } catch (Exception ignored) {}
-        finally { exchange.close(); }
-        return;
-    }
-
-    String json;
-    try {
-        File configFile = new File(getDataFolder(), "config.yml");
-        YamlConfiguration freshConfig = YamlConfiguration.loadConfiguration(configFile);
-        ConfigurationSection balSec = freshConfig.getConfigurationSection("balances");
-
-        List<BalanceEntry> list = new ArrayList<>();
-        if (balSec != null) {
-            for (String key : balSec.getKeys(false)) {
-                list.add(new BalanceEntry(key, balSec.getDouble(key)));
+            exchange.sendResponseHeaders(200, bytes.length);
+            try (OutputStream os = exchange.getResponseBody()) {
+                os.write(bytes);
             }
+        } catch (Exception ignored) {
+        } finally {
+            exchange.close();
         }
-        list.sort((a, b) -> Double.compare(b.balance, a.balance));
-
-        StringBuilder sb = new StringBuilder("[");
-        int limit = Math.min(10, list.size());
-        for (int i = 0; i < limit; i++) {
-            BalanceEntry entry = list.get(i);
-            if (i > 0) sb.append(",");
-            sb.append("{\"rank\":").append(i + 1)
-                    .append(",\"player\":\"").append(escapeJson(entry.name)).append("\"")
-                    .append(",\"balance\":").append(String.format(Locale.US, "%.2f", entry.balance))
-                    .append("}");
-        }
-        sb.append("]");
-        json = sb.toString();
-    } catch (Exception ex) {
-        json = "[]"; // Renvoie un tableau vide plutôt qu'une erreur pour éviter de faire planter le site
     }
 
-    byte[] bytes = json.getBytes(StandardCharsets.UTF_8);
-    try {
-        exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
-        exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
-        exchange.getResponseHeaders().set("Access-Control-Allow-Methods", "GET, OPTIONS");
-        exchange.sendResponseHeaders(200, bytes.length);
-        try (OutputStream os = exchange.getResponseBody()) {
-            os.write(bytes);
+    private void handleTeams(HttpExchange exchange) {
+        if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
+            try {
+                exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
+                exchange.getResponseHeaders().set("Access-Control-Allow-Methods", "GET, OPTIONS");
+                exchange.getResponseHeaders().set("Access-Control-Allow-Headers", "*");
+                exchange.sendResponseHeaders(204, -1);
+            } catch (Exception ignored) {}
+            finally { exchange.close(); }
+            return;
         }
-    } catch (Exception ignored) {
-    } finally {
-        exchange.close();
+
+        String json;
+        try {
+            File configFile = new File(getDataFolder(), "config.yml");
+            YamlConfiguration freshConfig = YamlConfiguration.loadConfiguration(configFile);
+            ConfigurationSection teamSec = freshConfig.getConfigurationSection("teams");
+
+            StringBuilder sb = new StringBuilder("[");
+            if (teamSec != null) {
+                boolean first = true;
+                for (String teamName : teamSec.getKeys(false)) {
+                    String path = "teams." + teamName;
+                    String creator = freshConfig.getString(path + ".creatorName", "");
+                    List<String> members = freshConfig.getStringList(path + ".members");
+                    String hq = freshConfig.getString(path + ".hq", null);
+
+                    if (!first) sb.append(",");
+                    first = false;
+
+                    sb.append("{")
+                      .append("\"name\":\"").append(escapeJson(teamName)).append("\",")
+                      .append("\"creator\":\"").append(escapeJson(creator)).append("\",")
+                      .append("\"hqSet\":").append(hq != null ? "true" : "false").append(",")
+                      .append("\"memberCount\":").append(members.size()).append(",")
+                      .append("\"members\":[");
+
+                    for (int m = 0; m < members.size(); m++) {
+                        if (m > 0) sb.append(",");
+                        sb.append("\"").append(escapeJson(members.get(m))).append("\"");
+                    }
+                    sb.append("]}");
+                }
+            }
+            sb.append("]");
+            json = sb.toString();
+        } catch (Exception ex) {
+            json = "[]";
+        }
+
+        byte[] bytes = json.getBytes(StandardCharsets.UTF_8);
+        try {
+            exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
+            exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
+            exchange.getResponseHeaders().set("Access-Control-Allow-Methods", "GET, OPTIONS");
+            exchange.sendResponseHeaders(200, bytes.length);
+            try (OutputStream os = exchange.getResponseBody()) {
+                os.write(bytes);
+            }
+        } catch (Exception ignored) {
+        } finally {
+            exchange.close();
+        }
     }
-}
 
     private String escapeJson(String s) {
         if (s == null) return "";
@@ -401,7 +457,6 @@ private void handleTop10(HttpExchange exchange) {
         Player p = e.getPlayer();
         String pName = p.getName().toLowerCase();
         
-        boolean hadRankAlready = playerRanks.containsKey(pName);
         playerRanks.putIfAbsent(pName, "default");
         spawnProtected.put(p.getUniqueId(), true); 
 
@@ -422,7 +477,6 @@ private void handleTop10(HttpExchange exchange) {
             p.getInventory().addItem(fishingRod, book);
         }
 
-        // FIX: update retardé, le client doit avoir fini de se connecter pour recevoir les packets de team
         Bukkit.getScheduler().runTaskLater(this, this::refreshAllVisuals, 5L);
         Bukkit.getScheduler().runTaskLater(this, this::refreshAllVisuals, 40L);
 
@@ -500,7 +554,6 @@ private void handleTop10(HttpExchange exchange) {
         modInventories.remove(p.getUniqueId());
         combatTag.remove(p.getUniqueId());
         activeTeleports.remove(p.getUniqueId());
-        // Protection de spawn redonnée pour TOUTE cause de mort (PvP, mob, chute, void...)
         spawnProtected.put(p.getUniqueId(), true);
 
         Bukkit.getScheduler().runTaskLater(this, () -> {
@@ -658,8 +711,6 @@ private void handleTop10(HttpExchange exchange) {
         return true;
     }
 
-    // FIX CHAT : on n'utilise plus %1$s (displayName) mais le vrai pseudo,
-    // et on remet explicitement le blanc après le pseudo (§r§f) pour que le message soit blanc.
     @EventHandler(priority = EventPriority.MONITOR)
     public void onChat(AsyncPlayerChatEvent e) {
         Player p = e.getPlayer();
@@ -670,12 +721,8 @@ private void handleTop10(HttpExchange exchange) {
         String clan = playerTeam.get(pName);
         String clanTag = (clan != null && !clan.isEmpty()) ? "§f[§f" + clan + "§f] " : "";
 
-
-
-        // Empêche les joueurs d'utiliser des codes couleur dans leurs messages
         e.setMessage(ChatColor.stripColor(e.getMessage()));
 
-        // On échappe les % du nom de clan/pseudo, sinon String.format plante
         String safePrefix = clanTag.replace("%", "%%") + colorCode + p.getName().replace("%", "%%");
         e.setFormat("§r§f<" + safePrefix + "§r§f > §f%2$s");
     }
@@ -702,10 +749,9 @@ private void handleTop10(HttpExchange exchange) {
         return board;
     }
 
-    // Préfixe compatible 1.8 (max 16 caractères) : on tronque le nom du clan, jamais les codes couleur
     private String buildPrefix(String clan, String colorCode) {
         if (clan == null || clan.isEmpty()) return colorCode;
-        int max = 16 - colorCode.length() - 5; // "§6[" (3) + "] " (2) = 5 caractères
+        int max = 16 - colorCode.length() - 5;
         if (max < 1) max = 1;
         String c = clan.length() > max ? clan.substring(0, max) : clan;
         return "§f[" + c + "] " + colorCode;
@@ -726,7 +772,6 @@ private void handleTop10(HttpExchange exchange) {
         if (!t.hasEntry(target.getName())) t.addEntry(target.getName());
     }
 
-    // Met à jour UN joueur pour tous les viewers
     private void updatePlayerVisuals(Player p) {
         String pName = p.getName().toLowerCase();
         String colorCode = getRankColorCode(playerRanks.getOrDefault(pName, "default"));
@@ -739,7 +784,6 @@ private void handleTop10(HttpExchange exchange) {
             applyTeamEntry(getBoard(viewer), p);
         }
 
-        // Force le redessin du nametag au-dessus de la tête pour tous les viewers
         for (Player viewer : Bukkit.getOnlinePlayers()) {
             if (viewer == p) continue;
             viewer.hidePlayer(p);
@@ -752,7 +796,6 @@ private void handleTop10(HttpExchange exchange) {
         }, 3L);
     }
 
-    // Met à jour TOUT LE MONDE pour TOUT LE MONDE (à utiliser au join / enable)
     private void refreshAllVisuals() {
         for (Player target : Bukkit.getOnlinePlayers()) {
             String tn = target.getName().toLowerCase();
@@ -766,9 +809,6 @@ private void handleTop10(HttpExchange exchange) {
                 applyTeamEntry(board, target);
             }
         }
-        // FIX NAMETAG: en 1.8, le prefixe de team met bien à jour le TAB instantanément,
-        // mais le nametag flottant au-dessus de la tête n'est pas toujours redessiné par le client
-        // tant qu'il ne "revoit" pas l'entité. On force donc un hide/show.
         forceNametagRefresh();
     }
 
@@ -841,7 +881,6 @@ private void handleTop10(HttpExchange exchange) {
                 }
             }
 
-            // FIX: on passe par getBoard() pour ne jamais écrire sur le scoreboard principal
             Scoreboard board = getBoard(p);
             Objective obj = board.getObjective("mcteams");
             if (obj == null) {
@@ -851,7 +890,7 @@ private void handleTop10(HttpExchange exchange) {
             }
 
             Map<String, Integer> currentLines = new LinkedHashMap<>();
-            int line = 10; // compteur decroissant : evite toute collision entre lignes optionnelles
+            int line = 10;
 
             currentLines.put("§m---------------------", line--);
 
@@ -864,7 +903,6 @@ private void handleTop10(HttpExchange exchange) {
             boolean isProtected = spawnProtected.getOrDefault(uuid, false);
             currentLines.put("§6Spawn protection: " + (isProtected ? "§aEnable" : "§cDisable"), line--);
 
-            // Combat tag affiche en secondes, mis a jour chaque tick du scoreboard (1x/sec)
             if (isInCombat(p)) {
                 long remainingMs = combatTag.get(uuid) - System.currentTimeMillis();
                 long remainingSec = Math.max(0L, (remainingMs + 999L) / 1000L);
@@ -1408,7 +1446,6 @@ private void handleTop10(HttpExchange exchange) {
                     p.sendMessage("§cYou cannot invite yourself!");
                     return;
                 }
-                // Un joueur ne peut etre que dans une seule team a la fois
                 if (playerTeam.containsKey(inviteeName)) {
                     p.sendMessage("§cThis player is already in a team.");
                     return;
@@ -1512,7 +1549,6 @@ private void handleTop10(HttpExchange exchange) {
                     return;
                 }
                 
-                // Recherche insensible à la casse
                 String exactMemberName = null;
                 for (String m : kTeam.members) {
                     if (m.equalsIgnoreCase(targetName)) {
@@ -1547,9 +1583,6 @@ private void handleTop10(HttpExchange exchange) {
         return false;
     }
 
-    // Isole la dependance a PrepareAnvilEvent : si cette classe n'existe pas sur le serveur,
-    // seul CE listener echoue a s'enregistrer (voir le try/catch dans onEnable), et le reste
-    // du plugin (join, chat, teleport, etc.) continue de fonctionner normalement.
     private class AnvilListener implements Listener {
         @EventHandler
         public void onPrepareAnvil(PrepareAnvilEvent e) {
