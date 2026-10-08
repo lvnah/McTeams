@@ -56,9 +56,12 @@ import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 
 import java.io.File;
+import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 import java.text.DecimalFormat;
 import java.util.*;
 
@@ -83,11 +86,31 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
     private final List<MarketItem> market = new ArrayList<>();
     private final DecimalFormat df = new DecimalFormat("#.##");
     private static final int MAX_TEAM_MEMBERS = 6;
+    private static final long INVITE_EXPIRE_MS = 60000L;
+
+    // Invitations de team en attente (cle = pseudo de l'invite en minuscules)
+    private final Map<String, Invite> pendingInvites = new HashMap<>();
+    // Armure sauvegardee pendant le mod mode
+    private final Map<UUID, ItemStack[]> modArmor = new HashMap<>();
+
+    private static class Invite {
+        final String team;
+        final String inviter;
+        final long expireAt;
+
+        Invite(String team, String inviter, long expireAt) {
+            this.team = team;
+            this.inviter = inviter;
+            this.expireAt = expireAt;
+        }
+    }
 
     @Override
     public void onEnable() {
         saveDefaultConfig();
         loadData();
+        loadMarket();
+        loadModData();
 
         for (World world : Bukkit.getWorlds()) {
             world.setDifficulty(Difficulty.EASY);
@@ -102,6 +125,10 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
 
         getServer().getPluginManager().registerEvents(this, this);
 
+        // FIX CRITIQUE: PrepareAnvilEvent n'existe pas sur certains forks (dont le tien).
+        // Si on le laisse dans la classe principale, Bukkit echoue a enregistrer TOUS les
+        // evenements de la classe (onJoin, onChat, etc.) a cause de cette seule classe manquante.
+        // On l'isole donc dans un listener separe, protege par un try/catch.
         try {
             getServer().getPluginManager().registerEvents(new AnvilListener(), this);
         } catch (Throwable t) {
@@ -111,11 +138,12 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         
         for (Player p : Bukkit.getOnlinePlayers()) {
             String pName = p.getName().toLowerCase();
-            spawnProtected.putIfAbsent(p.getUniqueId(), true);
             playerRanks.putIfAbsent(pName, "default");
         }
         
+        // FIX: refresh complet (tous les viewers x tous les joueurs) après le chargement
         Bukkit.getScheduler().runTaskLater(this, this::refreshAllVisuals, 20L);
+
         Bukkit.getScheduler().runTaskTimer(this, this::updateScoreboards, 0L, 20L);
 
         startHttpServer();
@@ -126,16 +154,112 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
     @Override
     public void onDisable() {
         saveData();
+        saveMarket();
+        saveModData();
         if (httpServer != null) {
             httpServer.stop(0);
             httpServer = null;
         }
     }
 
-    // ==================== API HTTP (Top 10 balances & Teams) ====================
+    // ==================== PERSISTANCE (market, mod mode) ====================
+    // Ecriture via fichier temporaire puis remplacement, pour ne jamais laisser un fichier a moitie ecrit.
+
+    private void saveYamlAtomic(YamlConfiguration cfg, File target) {
+        try {
+            File dir = target.getParentFile();
+            if (dir != null && !dir.exists()) dir.mkdirs();
+            File tmp = new File(target.getPath() + ".tmp");
+            cfg.save(tmp);
+            Files.move(tmp.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException e) {
+            getLogger().warning("[McTeams] Sauvegarde impossible de " + target.getName() + " : " + e.getMessage());
+        }
+    }
+
+    private void saveMarket() {
+        YamlConfiguration cfg = new YamlConfiguration();
+        int i = 0;
+        for (MarketItem m : market) {
+            String path = "items." + (i++);
+            cfg.set(path + ".id", m.id);
+            cfg.set(path + ".seller", m.seller);
+            cfg.set(path + ".sellerUuid", m.sellerUuid != null ? m.sellerUuid.toString() : null);
+            cfg.set(path + ".price", m.price);
+            cfg.set(path + ".item", m.item);
+        }
+        saveYamlAtomic(cfg, new File(getDataFolder(), "market.yml"));
+    }
+
+    private void loadMarket() {
+        File f = new File(getDataFolder(), "market.yml");
+        if (!f.exists()) return;
+        YamlConfiguration cfg = YamlConfiguration.loadConfiguration(f);
+        ConfigurationSection sec = cfg.getConfigurationSection("items");
+        market.clear();
+        if (sec != null) {
+            for (String key : sec.getKeys(false)) {
+                ItemStack item = sec.getItemStack(key + ".item");
+                if (item == null) continue;
+                UUID sellerUuid = null;
+                try {
+                    String raw = sec.getString(key + ".sellerUuid");
+                    if (raw != null) sellerUuid = UUID.fromString(raw);
+                } catch (IllegalArgumentException ignored) {}
+                market.add(new MarketItem(sec.getString(key + ".id"), sec.getString(key + ".seller"), sellerUuid, item, sec.getDouble(key + ".price")));
+            }
+        }
+        getLogger().info("[McTeams] Annonces market chargees: " + market.size());
+    }
+
+    private void saveModData() {
+        YamlConfiguration cfg = new YamlConfiguration();
+        for (UUID id : modMode) {
+            String path = "players." + id;
+            ItemStack[] contents = modInventories.get(id);
+            ItemStack[] armor = modArmor.get(id);
+            if (contents != null) cfg.set(path + ".contents", Arrays.asList(contents));
+            if (armor != null) cfg.set(path + ".armor", Arrays.asList(armor));
+        }
+        saveYamlAtomic(cfg, new File(getDataFolder(), "modmode.yml"));
+    }
+
+    private void loadModData() {
+        File f = new File(getDataFolder(), "modmode.yml");
+        if (!f.exists()) return;
+        YamlConfiguration cfg = YamlConfiguration.loadConfiguration(f);
+        ConfigurationSection sec = cfg.getConfigurationSection("players");
+        if (sec == null) return;
+        for (String key : sec.getKeys(false)) {
+            UUID id;
+            try {
+                id = UUID.fromString(key);
+            } catch (IllegalArgumentException e) {
+                continue;
+            }
+            modMode.add(id);
+            modInventories.put(id, toItemArray(sec.getList(key + ".contents"), 36));
+            modArmor.put(id, toItemArray(sec.getList(key + ".armor"), 4));
+        }
+    }
+
+    private ItemStack[] toItemArray(List<?> list, int fallbackSize) {
+        if (list == null) return new ItemStack[fallbackSize];
+        ItemStack[] arr = new ItemStack[list.size()];
+        for (int i = 0; i < arr.length; i++) {
+            Object o = list.get(i);
+            arr[i] = (o instanceof ItemStack) ? (ItemStack) o : null;
+        }
+        return arr;
+    }
+
+    // ==================== API HTTP (Top 10 balances) ====================
+    // Expose un endpoint JSON en lecture seule pour le site web.
+    // Lit directement config.yml a chaque requete (pas la map en memoire) pour avoir
+    // toujours la derniere valeur persistee sur disque, comme demande.
 
     private void startHttpServer() {
-        int port = getConfig().getInt("http-port", 2952);
+        int port = getConfig().getInt("http-port", 8080);
         if (!getConfig().contains("http-port")) {
             getConfig().set("http-port", port);
             saveConfig();
@@ -143,28 +267,16 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         try {
             httpServer = HttpServer.create(new InetSocketAddress(port), 0);
             httpServer.createContext("/api/top10", this::handleTop10);
-            httpServer.createContext("/api/teams", this::handleTeams);
             httpServer.setExecutor(null);
             httpServer.start();
-            getLogger().info("[McTeams] API HTTP demarree sur le port " + port + " (endpoints: /api/top10, /api/teams)");
+            getLogger().info("[McTeams] API HTTP demarree sur le port " + port + " (endpoint: /api/top10)");
         } catch (Exception e) {
             getLogger().warning("[McTeams] Impossible de demarrer le serveur HTTP sur le port " + port
-                    + " : " + e.getMessage() + " (vérifie 'http-port' dans config.yml)");
+                    + " : " + e.getMessage() + " (le port est peut-etre deja utilise, change 'http-port' dans config.yml)");
         }
     }
 
     private void handleTop10(HttpExchange exchange) {
-        if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
-            try {
-                exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
-                exchange.getResponseHeaders().set("Access-Control-Allow-Methods", "GET, OPTIONS");
-                exchange.getResponseHeaders().set("Access-Control-Allow-Headers", "*");
-                exchange.sendResponseHeaders(204, -1);
-            } catch (Exception ignored) {}
-            finally { exchange.close(); }
-            return;
-        }
-
         String json;
         try {
             File configFile = new File(getDataFolder(), "config.yml");
@@ -192,79 +304,13 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
             sb.append("]");
             json = sb.toString();
         } catch (Exception ex) {
-            json = "[]";
+            json = "{\"error\":\"" + escapeJson(ex.getMessage()) + "\"}";
         }
 
         byte[] bytes = json.getBytes(StandardCharsets.UTF_8);
         try {
             exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
             exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
-            exchange.getResponseHeaders().set("Access-Control-Allow-Methods", "GET, OPTIONS");
-            exchange.sendResponseHeaders(200, bytes.length);
-            try (OutputStream os = exchange.getResponseBody()) {
-                os.write(bytes);
-            }
-        } catch (Exception ignored) {
-        } finally {
-            exchange.close();
-        }
-    }
-
-    private void handleTeams(HttpExchange exchange) {
-        if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
-            try {
-                exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
-                exchange.getResponseHeaders().set("Access-Control-Allow-Methods", "GET, OPTIONS");
-                exchange.getResponseHeaders().set("Access-Control-Allow-Headers", "*");
-                exchange.sendResponseHeaders(204, -1);
-            } catch (Exception ignored) {}
-            finally { exchange.close(); }
-            return;
-        }
-
-        String json;
-        try {
-            File configFile = new File(getDataFolder(), "config.yml");
-            YamlConfiguration freshConfig = YamlConfiguration.loadConfiguration(configFile);
-            ConfigurationSection teamSec = freshConfig.getConfigurationSection("teams");
-
-            StringBuilder sb = new StringBuilder("[");
-            if (teamSec != null) {
-                boolean first = true;
-                for (String teamName : teamSec.getKeys(false)) {
-                    String path = "teams." + teamName;
-                    String creator = freshConfig.getString(path + ".creatorName", "");
-                    List<String> members = freshConfig.getStringList(path + ".members");
-                    String hq = freshConfig.getString(path + ".hq", null);
-
-                    if (!first) sb.append(",");
-                    first = false;
-
-                    sb.append("{")
-                      .append("\"name\":\"").append(escapeJson(teamName)).append("\",")
-                      .append("\"creator\":\"").append(escapeJson(creator)).append("\",")
-                      .append("\"hqSet\":").append(hq != null ? "true" : "false").append(",")
-                      .append("\"memberCount\":").append(members.size()).append(",")
-                      .append("\"members\":[");
-
-                    for (int m = 0; m < members.size(); m++) {
-                        if (m > 0) sb.append(",");
-                        sb.append("\"").append(escapeJson(members.get(m))).append("\"");
-                    }
-                    sb.append("]}");
-                }
-            }
-            sb.append("]");
-            json = sb.toString();
-        } catch (Exception ex) {
-            json = "[]";
-        }
-
-        byte[] bytes = json.getBytes(StandardCharsets.UTF_8);
-        try {
-            exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
-            exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
-            exchange.getResponseHeaders().set("Access-Control-Allow-Methods", "GET, OPTIONS");
             exchange.sendResponseHeaders(200, bytes.length);
             try (OutputStream os = exchange.getResponseBody()) {
                 os.write(bytes);
@@ -457,8 +503,8 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         Player p = e.getPlayer();
         String pName = p.getName().toLowerCase();
         
+        boolean hadRankAlready = playerRanks.containsKey(pName);
         playerRanks.putIfAbsent(pName, "default");
-        spawnProtected.put(p.getUniqueId(), true); 
 
         if (!p.hasPlayedBefore()) {
             if (spawnLocation != null) {
@@ -477,6 +523,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
             p.getInventory().addItem(fishingRod, book);
         }
 
+        // FIX: update retardé, le client doit avoir fini de se connecter pour recevoir les packets de team
         Bukkit.getScheduler().runTaskLater(this, this::refreshAllVisuals, 5L);
         Bukkit.getScheduler().runTaskLater(this, this::refreshAllVisuals, 40L);
 
@@ -536,24 +583,28 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
     public void onQuit(PlayerQuitEvent e) {
         e.setQuitMessage(null);
         Player p = e.getPlayer();
-        modMode.remove(p.getUniqueId());
-        modInventories.remove(p.getUniqueId());
+        if (modMode.contains(p.getUniqueId())) {
+            disableModMode(p); // restaure l'inventaire avant la deconnexion
+        }
         if (isInCombat(p)) {
             p.setHealth(0.0);
             Bukkit.broadcastMessage(getMsg("combat_death", p.getName()));
         }
         combatTag.remove(p.getUniqueId());
         activeTeleports.remove(p.getUniqueId());
-        spawnProtected.remove(p.getUniqueId());
     }
 
     @EventHandler
     public void onDeath(PlayerDeathEvent e) {
         Player p = e.getEntity();
-        modMode.remove(p.getUniqueId());
-        modInventories.remove(p.getUniqueId());
+        if (modMode.remove(p.getUniqueId())) {
+            modInventories.remove(p.getUniqueId());
+            modArmor.remove(p.getUniqueId());
+            saveModData();
+        }
         combatTag.remove(p.getUniqueId());
         activeTeleports.remove(p.getUniqueId());
+        // Protection de spawn redonnée pour TOUTE cause de mort (PvP, mob, chute, void...)
         spawnProtected.put(p.getUniqueId(), true);
 
         Bukkit.getScheduler().runTaskLater(this, () -> {
@@ -711,6 +762,8 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         return true;
     }
 
+    // FIX CHAT : on n'utilise plus %1$s (displayName) mais le vrai pseudo,
+    // et on remet explicitement le blanc après le pseudo (§r§f) pour que le message soit blanc.
     @EventHandler(priority = EventPriority.MONITOR)
     public void onChat(AsyncPlayerChatEvent e) {
         Player p = e.getPlayer();
@@ -721,8 +774,12 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         String clan = playerTeam.get(pName);
         String clanTag = (clan != null && !clan.isEmpty()) ? "§f[§f" + clan + "§f] " : "";
 
+
+
+        // Empêche les joueurs d'utiliser des codes couleur dans leurs messages
         e.setMessage(ChatColor.stripColor(e.getMessage()));
 
+        // On échappe les % du nom de clan/pseudo, sinon String.format plante
         String safePrefix = clanTag.replace("%", "%%") + colorCode + p.getName().replace("%", "%%");
         e.setFormat("§r§f<" + safePrefix + "§r§f > §f%2$s");
     }
@@ -749,9 +806,10 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         return board;
     }
 
+    // Préfixe compatible 1.8 (max 16 caractères) : on tronque le nom du clan, jamais les codes couleur
     private String buildPrefix(String clan, String colorCode) {
         if (clan == null || clan.isEmpty()) return colorCode;
-        int max = 16 - colorCode.length() - 5;
+        int max = 16 - colorCode.length() - 5; // "§6[" (3) + "] " (2) = 5 caractères
         if (max < 1) max = 1;
         String c = clan.length() > max ? clan.substring(0, max) : clan;
         return "§f[" + c + "] " + colorCode;
@@ -772,6 +830,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         if (!t.hasEntry(target.getName())) t.addEntry(target.getName());
     }
 
+    // Met à jour UN joueur pour tous les viewers
     private void updatePlayerVisuals(Player p) {
         String pName = p.getName().toLowerCase();
         String colorCode = getRankColorCode(playerRanks.getOrDefault(pName, "default"));
@@ -784,6 +843,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
             applyTeamEntry(getBoard(viewer), p);
         }
 
+        // Force le redessin du nametag au-dessus de la tête pour tous les viewers
         for (Player viewer : Bukkit.getOnlinePlayers()) {
             if (viewer == p) continue;
             viewer.hidePlayer(p);
@@ -796,6 +856,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         }, 3L);
     }
 
+    // Met à jour TOUT LE MONDE pour TOUT LE MONDE (à utiliser au join / enable)
     private void refreshAllVisuals() {
         for (Player target : Bukkit.getOnlinePlayers()) {
             String tn = target.getName().toLowerCase();
@@ -809,6 +870,9 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                 applyTeamEntry(board, target);
             }
         }
+        // FIX NAMETAG: en 1.8, le prefixe de team met bien à jour le TAB instantanément,
+        // mais le nametag flottant au-dessus de la tête n'est pas toujours redessiné par le client
+        // tant qu'il ne "revoit" pas l'entité. On force donc un hide/show.
         forceNametagRefresh();
     }
 
@@ -835,7 +899,9 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
     private void enableModMode(Player p) {
         modMode.add(p.getUniqueId());
         modInventories.put(p.getUniqueId(), p.getInventory().getContents());
+        modArmor.put(p.getUniqueId(), p.getInventory().getArmorContents());
         p.getInventory().clear();
+        p.getInventory().setArmorContents(new ItemStack[4]);
         p.setGameMode(GameMode.CREATIVE);
 
         p.getInventory().setItem(0, createModItem(Material.COMPASS, "§6» §eRandom Teleport §6«"));
@@ -844,6 +910,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         p.getInventory().setItem(7, createModItem(Material.REDSTONE_LAMP_ON, "§6» §eFreeze Player §6«"));
         p.getInventory().setItem(8, createModItem(Material.REDSTONE_BLOCK, "§c» §4Exit Mod Mode §c«"));
         
+        saveModData();
         p.sendMessage("§6Mod mode enabled. Tools loaded.");
     }
 
@@ -854,6 +921,11 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
             p.getInventory().setContents(modInventories.get(p.getUniqueId()));
             modInventories.remove(p.getUniqueId());
         }
+        ItemStack[] savedArmor = modArmor.remove(p.getUniqueId());
+        if (savedArmor != null) {
+            p.getInventory().setArmorContents(savedArmor);
+        }
+        saveModData();
         p.setGameMode(GameMode.SURVIVAL);
         p.sendMessage("§6Mod mode disabled. Inventory restored.");
     }
@@ -881,6 +953,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                 }
             }
 
+            // FIX: on passe par getBoard() pour ne jamais écrire sur le scoreboard principal
             Scoreboard board = getBoard(p);
             Objective obj = board.getObjective("mcteams");
             if (obj == null) {
@@ -890,7 +963,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
             }
 
             Map<String, Integer> currentLines = new LinkedHashMap<>();
-            int line = 10;
+            int line = 10; // compteur decroissant : evite toute collision entre lignes optionnelles
 
             currentLines.put("§m---------------------", line--);
 
@@ -903,6 +976,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
             boolean isProtected = spawnProtected.getOrDefault(uuid, false);
             currentLines.put("§6Spawn protection: " + (isProtected ? "§aEnable" : "§cDisable"), line--);
 
+            // Combat tag affiche en secondes, mis a jour chaque tick du scoreboard (1x/sec)
             if (isInCombat(p)) {
                 long remainingMs = combatTag.get(uuid) - System.currentTimeMillis();
                 long remainingSec = Math.max(0L, (remainingMs + 999L) / 1000L);
@@ -1178,6 +1252,8 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                 if (args.length == 0) {
                     p.sendMessage("§6TEAMS §f! §6/team create [name] §f! §6Create team");
                     p.sendMessage("§6TEAMS §f! §6/team invite [player] §f! §6Invite player (max " + MAX_TEAM_MEMBERS + ")");
+                    p.sendMessage("§6TEAMS §f! §6/team accept §f! §6Accept an invitation");
+                    p.sendMessage("§6TEAMS §f! §6/team deny §f! §6Decline an invitation");
                     p.sendMessage("§6TEAMS §f! §6/team disband §f! §6Disband team (Creator)");
                     p.sendMessage("§6TEAMS §f! §6/team sethq §f! §6Set team HQ");
                     p.sendMessage("§6TEAMS §f! §6/team hq §f! §6Teleport to HQ");
@@ -1231,6 +1307,11 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                     int qty = Integer.parseInt(args[0]);
                     double price = Double.parseDouble(args[1]);
 
+                    if (qty <= 0 || !(price > 0) || Double.isInfinite(price)) {
+                        p.sendMessage("§cInvalid numbers provided.");
+                        return true;
+                    }
+
                     ItemStack inHand = p.getItemInHand();
                     if (inHand == null || inHand.getType() == Material.AIR || inHand.getAmount() < qty) {
                         p.sendMessage(getMsg("sell_not_enough"));
@@ -1248,6 +1329,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                     }
                     
                     market.add(new MarketItem(sellId, p.getName(), uuid, toSell, price));
+                    saveMarket();
                     p.sendMessage(getMsg("sell_success", sellId, price));
                 } catch (NumberFormatException e) {
                     p.sendMessage("§cInvalid numbers provided.");
@@ -1276,6 +1358,11 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                         return true;
                     }
 
+                    if (buyQty <= 0 || buyQty > toBuy.item.getAmount()) {
+                        p.sendMessage("§cInvalid quantity. Available: §f" + toBuy.item.getAmount());
+                        return true;
+                    }
+
                     double totalPrice = toBuy.price * buyQty;
                     double buyerBalance = balances.getOrDefault(pName, 0.0);
 
@@ -1288,12 +1375,20 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                         
                         ItemStack purchasedItem = toBuy.item.clone();
                         purchasedItem.setAmount(buyQty);
-                        p.getInventory().addItem(purchasedItem);
+                        Map<Integer, ItemStack> leftover = p.getInventory().addItem(purchasedItem);
+                        for (ItemStack extra : leftover.values()) {
+                            p.getWorld().dropItemNaturally(p.getLocation(), extra);
+                        }
                         
-                        market.remove(toBuy);
+                        if (buyQty >= toBuy.item.getAmount()) {
+                            market.remove(toBuy);
+                        } else {
+                            toBuy.item.setAmount(toBuy.item.getAmount() - buyQty);
+                        }
+                        saveMarket();
                         p.sendMessage(getMsg("buy_success"));
                         
-                        Player sellerPlayer = Bukkit.getPlayer(toBuy.sellerUuid);
+                        Player sellerPlayer = toBuy.sellerUuid != null ? Bukkit.getPlayer(toBuy.sellerUuid) : null;
                         if (sellerPlayer != null) {
                             sellerPlayer.sendMessage("§6Your item (" + toBuy.id + ") was sold for §f" + totalPrice + " Gold§6!");
                         }
@@ -1446,17 +1541,70 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                     p.sendMessage("§cYou cannot invite yourself!");
                     return;
                 }
+                // Un joueur ne peut etre que dans une seule team a la fois
                 if (playerTeam.containsKey(inviteeName)) {
                     p.sendMessage("§cThis player is already in a team.");
                     return;
                 }
 
-                iTeam.members.add(invitee.getName());
-                playerTeam.put(inviteeName, currentTeam);
+                Invite existingInv = pendingInvites.get(inviteeName);
+                if (existingInv != null && System.currentTimeMillis() < existingInv.expireAt && existingInv.team.equals(currentTeam)) {
+                    p.sendMessage("§cThis player already has a pending invitation from your team.");
+                    return;
+                }
+
+                pendingInvites.put(inviteeName, new Invite(currentTeam, p.getName(), System.currentTimeMillis() + INVITE_EXPIRE_MS));
+                p.sendMessage("§6Invitation sent to §f" + invitee.getName() + "§6. It expires in " + (INVITE_EXPIRE_MS / 1000) + "s.");
+                invitee.sendMessage("§f" + p.getName() + " §6invited you to join the team §f" + currentTeam + "§6!");
+                invitee.sendMessage("§6Type §f/team accept §6to join or §f/team deny §6to decline.");
+                break;
+
+            case "accept":
+                Invite aInv = pendingInvites.get(pName);
+                if (aInv == null || System.currentTimeMillis() > aInv.expireAt) {
+                    pendingInvites.remove(pName);
+                    p.sendMessage("§cYou have no pending team invitation.");
+                    return;
+                }
+                if (currentTeam != null) {
+                    pendingInvites.remove(pName);
+                    p.sendMessage("§cYou are already in a team!");
+                    return;
+                }
+                TeamData aTeam = teams.get(aInv.team);
+                if (aTeam == null) {
+                    pendingInvites.remove(pName);
+                    p.sendMessage("§cThis team no longer exists.");
+                    return;
+                }
+                if (aTeam.members.size() >= MAX_TEAM_MEMBERS) {
+                    pendingInvites.remove(pName);
+                    p.sendMessage("§cThis team is now full.");
+                    return;
+                }
+                pendingInvites.remove(pName);
+                aTeam.members.add(p.getName());
+                playerTeam.put(pName, aInv.team);
                 saveData();
-                updatePlayerVisuals(invitee);
-                p.sendMessage("§6You invited §f" + invitee.getName() + " §6to your team! (" + iTeam.members.size() + "/" + MAX_TEAM_MEMBERS + ")");
-                invitee.sendMessage("§6You have been added to the team §f" + currentTeam + " §6by §f" + p.getName() + "§6!");
+                updatePlayerVisuals(p);
+                p.sendMessage("§6You joined the team §f" + aInv.team + "§6!");
+                Player aInviter = Bukkit.getPlayer(aInv.inviter);
+                if (aInviter != null) {
+                    aInviter.sendMessage("§f" + p.getName() + " §6accepted your invitation! (" + aTeam.members.size() + "/" + MAX_TEAM_MEMBERS + ")");
+                }
+                break;
+
+            case "deny":
+                Invite dInv = pendingInvites.remove(pName);
+                if (dInv == null || System.currentTimeMillis() > dInv.expireAt) {
+                    p.sendMessage("§cYou have no pending team invitation.");
+                    return;
+                }
+                p.sendMessage("§6You declined the invitation.");
+                Player dInviter = Bukkit.getPlayer(dInv.inviter);
+                if (dInviter != null) {
+                    dInviter.sendMessage("§f" + p.getName() + " §cdeclined your invitation.");
+                }
                 break;
 
             case "sethq":
@@ -1549,6 +1697,7 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
                     return;
                 }
                 
+                // Recherche insensible à la casse
                 String exactMemberName = null;
                 for (String m : kTeam.members) {
                     if (m.equalsIgnoreCase(targetName)) {
@@ -1583,6 +1732,9 @@ public class McTeamsPlugin extends JavaPlugin implements CommandExecutor, Listen
         return false;
     }
 
+    // Isole la dependance a PrepareAnvilEvent : si cette classe n'existe pas sur le serveur,
+    // seul CE listener echoue a s'enregistrer (voir le try/catch dans onEnable), et le reste
+    // du plugin (join, chat, teleport, etc.) continue de fonctionner normalement.
     private class AnvilListener implements Listener {
         @EventHandler
         public void onPrepareAnvil(PrepareAnvilEvent e) {
